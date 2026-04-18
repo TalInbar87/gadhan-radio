@@ -27,10 +27,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfileLoading(true);
     setProfileError(null);
     try {
-      // Bypass supabase-js to avoid potential client-internal locks.
-      // We do a raw fetch with the cached session token + apikey.
-      const { data: sessData } = await supabase.auth.getSession();
-      const accessToken = sessData.session?.access_token;
+      // Bypass supabase-js entirely (it has internal lock issues that hang).
+      // Read the access token from localStorage directly.
+      let accessToken: string | undefined;
+      try {
+        const projectRef = import.meta.env.VITE_SUPABASE_URL.match(/https:\/\/([^.]+)/)?.[1];
+        const lsKey = `sb-${projectRef}-auth-token`;
+        const raw = localStorage.getItem(lsKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          accessToken = parsed?.access_token;
+        }
+      } catch (e) {
+        console.warn('[auth] could not read token from localStorage', e);
+      }
+      console.log('[auth] token from LS present?', !!accessToken);
       const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=*`;
       console.log('[auth] fetching', url);
       const res = await fetch(url, {

@@ -106,11 +106,41 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const saJson = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON');
     const sheetId = Deno.env.get('GOOGLE_SHEET_ID');
 
     if (!saJson || !sheetId) {
       throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SHEET_ID secret');
+    }
+
+    // Auth: cron uses SERVICE_ROLE_KEY directly; user calls must be from an admin.
+    const authHeader = req.headers.get('Authorization') ?? '';
+    const bearer = authHeader.replace(/^Bearer\s+/i, '');
+    const isCron = bearer && bearer === serviceKey;
+    if (!isCron) {
+      if (!authHeader) {
+        return new Response(JSON.stringify({ ok: false, error: 'Missing Authorization header' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: who } = await userClient.auth.getUser();
+      if (!who?.user) {
+        return new Response(JSON.stringify({ ok: false, error: 'Invalid token' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const adminCheck = createClient(supabaseUrl, serviceKey);
+      const { data: prof } = await adminCheck
+        .from('profiles').select('role').eq('id', who.user.id).single();
+      if (prof?.role !== 'admin') {
+        return new Response(JSON.stringify({ ok: false, error: 'Admin only' }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     const sb = createClient(supabaseUrl, serviceKey);

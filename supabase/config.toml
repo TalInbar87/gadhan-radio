@@ -2,7 +2,7 @@
 project_id = "gadhan-radio"
 
 [functions.export-to-sheets]
-verify_jwt = true
+verify_jwt = false
 
 [functions.manage-users]
-verify_jwt = true
+verify_jwt = false

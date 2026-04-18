@@ -27,16 +27,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfileLoading(true);
     setProfileError(null);
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-      if (error) {
-        console.error('[auth] failed to load profile', error);
+      // Bypass supabase-js to avoid potential client-internal locks.
+      // We do a raw fetch with the cached session token + apikey.
+      const { data: sessData } = await supabase.auth.getSession();
+      const accessToken = sessData.session?.access_token;
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=*`;
+      console.log('[auth] fetching', url);
+      const res = await fetch(url, {
+        headers: {
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${accessToken ?? ''}`,
+          'Accept': 'application/vnd.pgrst.object+json',
+        },
+      });
+      console.log('[auth] profile response status', res.status);
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('[auth] failed to load profile', res.status, text);
         setProfile(null);
-        setProfileError(error.message);
+        setProfileError(`[${res.status}] ${text}`);
       } else {
+        const data = await res.json();
         console.log('[auth] loadProfile success', { active: data?.active, role: data?.role });
         setProfile(data);
       }

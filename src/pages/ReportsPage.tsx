@@ -63,12 +63,26 @@ export default function ReportsPage() {
   async function exportToSheets() {
     setBusy(true); setMsg(null);
     try {
-      const { data, error } = await supabase.functions.invoke('export-to-sheets', {
-        body: { trigger: 'manual' },
+      const { data: { session } } = await supabase.auth.getSession();
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-to-sheets`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token ?? ''}`,
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ trigger: 'manual' }),
       });
-      if (error) throw error;
-      await logAudit({ action: 'report.export_sheets', details: data as Record<string, unknown> });
-      setMsg({ type: 'success', text: `יוצא ל-Google Sheets בהצלחה (${(data as { rows?: number })?.rows ?? '?'} שורות)` });
+      const text = await res.text();
+      let parsed: unknown = null;
+      try { parsed = JSON.parse(text); } catch { /* not JSON */ }
+      if (!res.ok) {
+        const errMsg = (parsed as { error?: string })?.error ?? text ?? `HTTP ${res.status}`;
+        throw new Error(`[${res.status}] ${errMsg}`);
+      }
+      await logAudit({ action: 'report.export_sheets', details: (parsed ?? {}) as Record<string, unknown> });
+      setMsg({ type: 'success', text: `יוצא ל-Google Sheets בהצלחה (${(parsed as { rows?: number })?.rows ?? '?'} שורות)` });
     } catch (e) {
       setMsg({ type: 'error', text: (e as Error).message });
     } finally {

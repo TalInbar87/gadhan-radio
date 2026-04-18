@@ -29,9 +29,9 @@ export default function Layout() {
     <div className="min-h-screen flex">
       <aside className="w-60 bg-slate-900 text-slate-100 flex flex-col">
         <div className="px-5 py-5 border-b border-slate-800 flex items-center gap-3">
-          <img src="/logo.png" alt="גדח״ן רדיו" className="w-10 h-10 object-contain rounded" />
+          <img src="/logo.png" alt="גדחה״ן רדיו" className="w-10 h-10 object-contain rounded" />
           <div>
-            <h1 className="text-lg font-bold">גדח״ן רדיו</h1>
+            <h1 className="text-lg font-bold">גדחה״ן רדיו</h1>
             <p className="text-xs text-slate-400 mt-0.5">ניהול ציוד קשר</p>
           </div>
         </div>

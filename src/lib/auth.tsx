@@ -7,6 +7,7 @@ interface AuthContextValue {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
+  profileError: string | null;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -17,68 +18,70 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   async function loadProfile(userId: string) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    if (error) {
-      console.error('[auth] failed to load profile', error);
+    setProfileLoading(true);
+    setProfileError(null);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      if (error) {
+        console.error('[auth] failed to load profile', error);
+        setProfile(null);
+        setProfileError(error.message);
+      } else {
+        setProfile(data);
+      }
+    } catch (e) {
+      console.error('[auth] loadProfile threw', e);
       setProfile(null);
-      return;
+      setProfileError((e as Error).message);
+    } finally {
+      setProfileLoading(false);
     }
-    setProfile(data);
   }
 
   useEffect(() => {
     let cancelled = false;
-    // Hard timeout — never let the app hang on "טוען"
-    const safety = setTimeout(() => {
-      if (!cancelled) setLoading(false);
-    }, 5000);
 
     (async () => {
       try {
         const { data } = await supabase.auth.getSession();
         if (cancelled) return;
         setSession(data.session);
-        if (data.session) {
-          try { await loadProfile(data.session.user.id); }
-          catch (e) { console.error('[auth] loadProfile failed', e); }
-        }
+        if (data.session) await loadProfile(data.session.user.id);
       } catch (e) {
         console.error('[auth] getSession failed', e);
       } finally {
-        if (!cancelled) {
-          clearTimeout(safety);
-          setLoading(false);
-        }
+        if (!cancelled) setSessionLoading(false);
       }
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       setSession(newSession);
-      if (newSession) {
-        try { await loadProfile(newSession.user.id); }
-        catch (e) { console.error('[auth] loadProfile (onChange) failed', e); }
-      } else {
-        setProfile(null);
-      }
+      if (newSession) await loadProfile(newSession.user.id);
+      else { setProfile(null); setProfileError(null); }
     });
     return () => {
       cancelled = true;
-      clearTimeout(safety);
       sub.subscription.unsubscribe();
     };
   }, []);
+
+  // "loading" = either initial session resolution OR a profile load is in-flight for an active session.
+  const loading = sessionLoading || (!!session && profileLoading);
 
   const value: AuthContextValue = {
     session,
     profile,
     loading,
+    profileError,
     signIn: async (email, password) => {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       return { error: error?.message ?? null };

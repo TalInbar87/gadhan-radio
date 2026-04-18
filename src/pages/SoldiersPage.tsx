@@ -184,6 +184,18 @@ export default function SoldiersPage() {
               </button>
             </div>
 
+            {selected.pdf_drive_file_id && (
+              <div className="mb-3">
+                <a
+                  href={`https://drive.google.com/file/d/${selected.pdf_drive_file_id}/view`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm text-emerald-700 hover:underline"
+                >
+                  הצג PDF עדכני ↗
+                </a>
+              </div>
+            )}
             <div className="text-sm font-semibold text-slate-700 mb-2">פריטים חתומים</div>
             {heldLoading ? (
               <div className="text-sm text-slate-500">טוען...</div>

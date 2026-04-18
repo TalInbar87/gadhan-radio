@@ -8,7 +8,7 @@
 #   1. Sanity check (tools + working dir).
 #   2. Local typecheck + production build (fails fast if broken).
 #   3. Push new Supabase migrations (DB schema).
-#   4. Deploy Supabase Edge Functions (export-to-sheets, manage-users).
+#   4. Deploy Supabase Edge Functions (export-to-sheets, manage-users, generate-signing-pdf).
 #   5. Commit & push to git → triggers Vercel auto-deploy.
 #
 # Usage:
@@ -114,7 +114,7 @@ if [[ $SKIP_SUPABASE -eq 0 ]]; then
   fi
 
   hdr "Edge Functions"
-  for fn in export-to-sheets manage-users; do
+  for fn in export-to-sheets manage-users generate-signing-pdf; do
     if [[ -d "supabase/functions/$fn" ]]; then
       if confirm "Deploy function '$fn'?"; then
         if supabase functions deploy "$fn" 2>&1 | tail -3; then

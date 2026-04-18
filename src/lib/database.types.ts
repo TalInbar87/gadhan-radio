@@ -19,6 +19,7 @@ export interface Profile {
 export interface Unit {
   id: string;
   name: string;
+  drive_folder_id: string | null;
   created_at: string;
 }
 
@@ -36,6 +37,7 @@ export interface Soldier {
   phone: string | null;
   unit_id: string;
   team_id: string | null;
+  pdf_drive_file_id: string | null;
   created_at: string;
 }
 
@@ -55,6 +57,7 @@ export interface Signing {
   team_id: string | null;
   type: SigningType;
   notes: string | null;
+  pdf_drive_file_id: string | null;
   created_at: string;
 }
 

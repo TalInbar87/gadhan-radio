@@ -6,3 +6,6 @@ verify_jwt = false
 
 [functions.manage-users]
 verify_jwt = false
+
+[functions.generate-signing-pdf]
+verify_jwt = false

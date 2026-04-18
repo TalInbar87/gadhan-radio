@@ -157,6 +157,38 @@ select * from cron.job_run_details order by start_time desc limit 10;
 
 ---
 
+## ייצור PDF להחתמה + העלאה ל-Google Drive
+
+כל פעולה בטופס ההחתמה מפיקה אוטומטית קובץ PDF בעברית עם מצב הציוד **המעודכן** של החייל ומעלה אותו ל-Google Drive (תיקייה נפרדת לכל מסגרת). הקישור מופיע בעמוד "כל ההחתמות" ובמודל החייל.
+
+- ה-PDF הוא **תמונת מצב מצטברת** — כולל את כל הפריטים שהחייל מחזיק כעת (לאחר ההחתמה הנוכחית), לא רק פריטי הטרנזקציה.
+- בכל החתמה חדשה, ה-PDF הקודם של אותו חייל **נמחק מ-Drive** (נשמר תמיד רק העדכני ביותר).
+- אם ההעלאה ל-Drive נכשלת — ההחתמה עצמה נשמרת בכל מקרה (התראה צהובה למשתמש).
+
+### חד-פעמי: הגדרת Google Drive
+
+1. https://console.cloud.google.com/apis/library/drive.googleapis.com — הפעל **Google Drive API** באותו פרויקט שבו הופעל Sheets API.
+2. ב-Google Drive: צור תיקייה חדשה (לדוגמה: `גדחה״ן רדיו - החתמות`).
+3. שתף את התיקייה עם ה-`client_email` של ה-service account עם הרשאת **Editor**.
+4. שמור את ה-Folder ID (החלק מה-URL: `drive.google.com/drive/folders/<FOLDER_ID>`).
+5. הגדר את ה-secret:
+
+```bash
+supabase secrets set GOOGLE_DRIVE_PARENT_FOLDER_ID="YOUR_FOLDER_ID"
+```
+
+(`GOOGLE_SERVICE_ACCOUNT_JSON` כבר מוגדר משלב Sheets — אותו service account.)
+
+### פריסת ה-Edge Function
+
+```bash
+supabase functions deploy generate-signing-pdf
+```
+
+(נכלל אוטומטית ב-`bash deploy.sh`.)
+
+---
+
 ## הרשאות (RLS)
 
 | טבלה | admin | raspar |

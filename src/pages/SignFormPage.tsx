@@ -26,7 +26,7 @@ export default function SignFormPage() {
   const [returnChecks, setReturnChecks] = useState<Record<string, ReturnSelection>>({});
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'warning'; msg: string } | null>(null);
 
   const isAdmin = profile?.role === 'admin';
   const isReturn = signingType === 'return';
@@ -179,7 +179,33 @@ export default function SignFormPage() {
         details: { soldier_id: finalSoldierId, items: inserts.length },
       });
 
-      setFeedback({ type: 'success', msg: 'נשמר בהצלחה' });
+      // Generate PDF + upload to Drive (best-effort; signing is already saved).
+      let pdfWarning: string | null = null;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-signing-pdf`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session?.access_token ?? ''}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ signing_id: signing.id }),
+        });
+        if (!res.ok) {
+          const t = await res.text();
+          pdfWarning = `[${res.status}] ${t}`;
+        }
+      } catch (e) {
+        pdfWarning = (e as Error).message;
+      }
+
+      setFeedback(
+        pdfWarning
+          ? { type: 'warning', msg: `נשמר בהצלחה. ⚠ העלאת PDF נכשלה: ${pdfWarning}` }
+          : { type: 'success', msg: 'נשמר בהצלחה — PDF הועלה ל-Drive' },
+      );
       setLines([{ itemId: '', quantity: 1, serialNumber: '' }]);
       setNotes('');
       setNewSoldier({ full_name: '', personal_number: '', phone: '' });
@@ -389,7 +415,13 @@ export default function SignFormPage() {
         </div>
 
         {feedback && (
-          <div className={`rounded-lg px-3 py-2 text-sm ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+          <div className={`rounded-lg px-3 py-2 text-sm ${
+            feedback.type === 'success'
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              : feedback.type === 'warning'
+                ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                : 'bg-red-50 text-red-700 border border-red-200'
+          }`}>
             {feedback.msg}
           </div>
         )}

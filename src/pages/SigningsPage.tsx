@@ -10,7 +10,7 @@ interface SigningRow {
   created_at: string;
   unit_id: string;
   team_id: string | null;
-  soldier: { full_name: string; personal_number: string } | null;
+  soldier: { full_name: string; personal_number: string; pdf_drive_file_id: string | null } | null;
   performer: { full_name: string } | null;
   items: Array<{
     quantity: number;
@@ -66,7 +66,7 @@ export default function SigningsPage() {
         .from('signings')
         .select(`
           id, type, notes, created_at, unit_id, team_id,
-          soldier:soldiers(full_name, personal_number),
+          soldier:soldiers(full_name, personal_number, pdf_drive_file_id),
           performer:profiles!signings_performed_by_fkey(full_name),
           items:signing_items(quantity, action, serial_number, item:items(name))
         `)
@@ -189,6 +189,7 @@ export default function SigningsPage() {
                 <th>מבצע</th>
                 <th>פריטים</th>
                 <th>הערות</th>
+                <th>PDF</th>
               </tr>
             </thead>
             <tbody>
@@ -223,10 +224,24 @@ export default function SigningsPage() {
                     </ul>
                   </td>
                   <td className="text-xs text-slate-600 max-w-[16rem]">{r.notes ?? '—'}</td>
+                  <td>
+                    {r.soldier?.pdf_drive_file_id ? (
+                      <a
+                        href={`https://drive.google.com/file/d/${r.soldier.pdf_drive_file_id}/view`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-emerald-700 hover:underline text-xs"
+                      >
+                        פתח
+                      </a>
+                    ) : (
+                      <span className="text-slate-400 text-xs">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="text-center text-slate-500 py-6">אין החתמות</td></tr>
+                <tr><td colSpan={9} className="text-center text-slate-500 py-6">אין החתמות</td></tr>
               )}
             </tbody>
           </table>

@@ -34,17 +34,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data }) => {
-      setSession(data.session);
-      if (data.session) await loadProfile(data.session.user.id);
-      setLoading(false);
-    });
+    let cancelled = false;
+    // Hard timeout — never let the app hang on "טוען"
+    const safety = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 5000);
+
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (cancelled) return;
+        setSession(data.session);
+        if (data.session) {
+          try { await loadProfile(data.session.user.id); }
+          catch (e) { console.error('[auth] loadProfile failed', e); }
+        }
+      } catch (e) {
+        console.error('[auth] getSession failed', e);
+      } finally {
+        if (!cancelled) {
+          clearTimeout(safety);
+          setLoading(false);
+        }
+      }
+    })();
+
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       setSession(newSession);
-      if (newSession) await loadProfile(newSession.user.id);
-      else setProfile(null);
+      if (newSession) {
+        try { await loadProfile(newSession.user.id); }
+        catch (e) { console.error('[auth] loadProfile (onChange) failed', e); }
+      } else {
+        setProfile(null);
+      }
     });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      clearTimeout(safety);
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   const value: AuthContextValue = {

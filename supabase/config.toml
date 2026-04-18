@@ -1,0 +1,8 @@
+# Local Supabase project metadata (used by the Supabase CLI).
+project_id = "gadhan-radio"
+
+[functions.export-to-sheets]
+verify_jwt = true
+
+[functions.manage-users]
+verify_jwt = true

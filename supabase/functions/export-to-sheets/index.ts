@@ -1,13 +1,13 @@
 // supabase/functions/export-to-sheets/index.ts
-// Export the signings table to a Google Sheet.
+// Export a per-unit inventory matrix to Google Sheets.
+// Each unit (מסגרת) gets its own tab with columns:
+//   שם מלא | מספר אישי | טלפון | <item 1> | <item 2> | ...
+// Rows = soldiers in that unit; cells = quantity currently held.
 // Auth: caller must be a logged-in admin (or invoked by the cron with the SERVICE_ROLE_KEY).
 //
 // Required secrets (set via `supabase secrets set ...`):
-//   GOOGLE_SERVICE_ACCOUNT_JSON  full JSON of a Google Cloud service account (string)
-//   GOOGLE_SHEET_ID              target sheet ID
-//   SHEET_TAB_NAME               (optional) defaults to "signings"
-//
-// Daily run is configured via pg_cron — see migrations/0003_cron.sql.
+//   GOOGLE_SERVICE_ACCOUNT_JSON  full JSON of a Google Cloud service account
+//   GOOGLE_SHEET_ID              target spreadsheet ID
 
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
@@ -20,23 +20,11 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-interface SigningRow {
-  id: string;
-  type: string;
-  notes: string | null;
-  created_at: string;
-  soldier: { full_name: string; personal_number: string; phone: string | null } | null;
-  unit: { name: string } | null;
-  team: { name: string } | null;
-  performer: { full_name: string } | null;
-  items: Array<{ quantity: number; action: string; serial_number: string | null; item: { name: string } | null }>;
-}
-
+// ───────────────────────── Google auth ─────────────────────────
 async function getGoogleAccessToken(saJson: string): Promise<string> {
   const sa = JSON.parse(saJson) as { client_email: string; private_key: string };
   const pem = sa.private_key.replace(/\\n/g, '\n');
 
-  // Convert PEM PKCS#8 to CryptoKey
   const pemBody = pem
     .replace(/-----BEGIN PRIVATE KEY-----/g, '')
     .replace(/-----END PRIVATE KEY-----/g, '')
@@ -47,7 +35,7 @@ async function getGoogleAccessToken(saJson: string): Promise<string> {
     der.buffer,
     { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
     false,
-    ['sign']
+    ['sign'],
   );
 
   const now = getNumericDate(0);
@@ -60,7 +48,7 @@ async function getGoogleAccessToken(saJson: string): Promise<string> {
       iat: now,
       exp: getNumericDate(60 * 30),
     },
-    key
+    key,
   );
 
   const tokRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -76,26 +64,42 @@ async function getGoogleAccessToken(saJson: string): Promise<string> {
   return tok.access_token as string;
 }
 
-async function writeToSheet(token: string, sheetId: string, tabName: string, rows: any[][]) {
-  // Clear existing range, then write fresh values starting at A1
-  const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tabName)}:clear`;
-  await fetch(clearUrl, {
+// ───────────────────────── Sheets helpers ──────────────────────
+async function getExistingTabs(token: string, sheetId: string): Promise<Set<string>> {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets(properties(title))`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`Sheets metadata fetch failed: ${await res.text()}`);
+  const j = await res.json();
+  const titles = (j.sheets ?? []).map((s: any) => s.properties?.title).filter(Boolean);
+  return new Set(titles);
+}
+
+async function createTab(token: string, sheetId: string, title: string) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}:batchUpdate`;
+  const res = await fetch(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requests: [{ addSheet: { properties: { title } } }],
+    }),
   });
+  if (!res.ok) throw new Error(`Add-sheet failed for "${title}": ${await res.text()}`);
+}
+
+async function writeToSheet(token: string, sheetId: string, tabName: string, rows: any[][]) {
+  const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tabName)}:clear`;
+  await fetch(clearUrl, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
 
   const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tabName)}!A1?valueInputOption=USER_ENTERED`;
   const writeRes = await fetch(writeUrl, {
     method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ values: rows }),
   });
-  if (!writeRes.ok) throw new Error(`Sheets write failed: ${await writeRes.text()}`);
+  if (!writeRes.ok) throw new Error(`Sheets write failed for "${tabName}": ${await writeRes.text()}`);
 }
 
+// ───────────────────────── main ─────────────────────────────────
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -104,64 +108,90 @@ serve(async (req) => {
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const saJson = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON');
     const sheetId = Deno.env.get('GOOGLE_SHEET_ID');
-    const tabName = Deno.env.get('SHEET_TAB_NAME') ?? 'signings';
 
     if (!saJson || !sheetId) {
       throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SHEET_ID secret');
     }
 
-    // Use service-role client so we read everything (cron has no user context).
     const sb = createClient(supabaseUrl, serviceKey);
 
-    const { data, error } = await sb
-      .from('signings')
-      .select(`
-        id, type, notes, created_at,
-        soldier:soldiers(full_name, personal_number, phone),
-        unit:units(name),
-        team:teams(name),
-        performer:profiles!signings_performed_by_fkey(full_name),
-        items:signing_items(quantity, action, serial_number, item:items(name))
-      `)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
+    // 1. Load reference data in parallel.
+    const [unitsRes, itemsRes, soldiersRes, siRes] = await Promise.all([
+      sb.from('units').select('id, name').order('name'),
+      sb.from('items').select('id, name').eq('active', true).order('name'),
+      sb.from('soldiers').select('id, full_name, personal_number, phone, unit_id').order('full_name'),
+      sb.from('signing_items').select('item_id, quantity, action, signing:signings(soldier_id)').in('action', ['issued', 'returned']),
+    ]);
+    if (unitsRes.error) throw unitsRes.error;
+    if (itemsRes.error) throw itemsRes.error;
+    if (soldiersRes.error) throw soldiersRes.error;
+    if (siRes.error) throw siRes.error;
 
-    const rows: any[][] = [
-      ['תאריך', 'סוג', 'חייל', 'מספר אישי', 'טלפון', 'מסגרת', 'צוות', 'מבצע', 'פריטים', 'הערות'],
-    ];
-    for (const s of (data ?? []) as unknown as SigningRow[]) {
-      rows.push([
-        new Date(s.created_at).toLocaleString('he-IL'),
-        s.type,
-        s.soldier?.full_name ?? '',
-        s.soldier?.personal_number ?? '',
-        s.soldier?.phone ?? '',
-        s.unit?.name ?? '',
-        s.team?.name ?? '',
-        s.performer?.full_name ?? '',
-        s.items.map((i) => `${i.item?.name ?? '?'}${i.serial_number ? ` [צ' ${i.serial_number}]` : ''} x${i.quantity}`).join(' | '),
-        s.notes ?? '',
-      ]);
+    const units = unitsRes.data ?? [];
+    const items = itemsRes.data ?? [];
+    const soldiers = soldiersRes.data ?? [];
+
+    // 2. Build per-(soldier, item) net held map.
+    //    key = `${soldier_id}::${item_id}` → quantity
+    const held = new Map<string, number>();
+    for (const row of (siRes.data ?? []) as unknown as Array<{
+      item_id: string;
+      quantity: number;
+      action: string;
+      signing: { soldier_id: string } | null;
+    }>) {
+      const sid = row.signing?.soldier_id;
+      if (!sid) continue;
+      const key = `${sid}::${row.item_id}`;
+      const cur = held.get(key) ?? 0;
+      held.set(key, cur + (row.action === 'issued' ? row.quantity : -row.quantity));
     }
 
+    // 3. Make sure every unit has a tab.
     const token = await getGoogleAccessToken(saJson);
-    await writeToSheet(token, sheetId, tabName, rows);
+    const existingTabs = await getExistingTabs(token, sheetId);
+    for (const u of units) {
+      if (!existingTabs.has(u.name)) {
+        await createTab(token, sheetId, u.name);
+      }
+    }
 
-    // Log to audit (best-effort)
+    // 4. Build and write one tab per unit.
+    const header = ['שם מלא', 'מספר אישי', 'טלפון', ...items.map((i) => i.name)];
+    let totalRows = 0;
+    const summary: Record<string, number> = {};
+
+    for (const u of units) {
+      const unitSoldiers = soldiers.filter((s) => s.unit_id === u.id);
+      const rows: any[][] = [header];
+      for (const s of unitSoldiers) {
+        const line: any[] = [s.full_name, s.personal_number, s.phone ?? ''];
+        for (const it of items) {
+          const qty = held.get(`${s.id}::${it.id}`) ?? 0;
+          line.push(qty > 0 ? qty : '');
+        }
+        rows.push(line);
+      }
+      await writeToSheet(token, sheetId, u.name, rows);
+      summary[u.name] = unitSoldiers.length;
+      totalRows += unitSoldiers.length;
+    }
+
+    // 5. Audit log.
     await sb.from('audit_logs').insert({
       action: 'sheets.export',
-      details: { rows: rows.length - 1, tab: tabName },
+      details: { units: units.length, total_soldiers: totalRows, per_unit: summary },
     });
 
     return new Response(
-      JSON.stringify({ ok: true, rows: rows.length - 1 }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ ok: true, units: units.length, rows: totalRows, per_unit: summary }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   } catch (e) {
     console.error('[export-to-sheets] error', e);
     return new Response(
       JSON.stringify({ ok: false, error: (e as Error).message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   }
 });

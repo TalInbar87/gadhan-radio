@@ -56,12 +56,22 @@ export default function UsersPage() {
     if (form.password.length < 6) {
       return setFeedback({ type: 'error', msg: 'סיסמה חייבת להיות לפחות 6 תווים' });
     }
+    // Email is optional — fall back to a synthetic address built from the
+    // personal number so Supabase Auth still has a unique login identifier.
+    let email = form.email.trim();
+    if (!email) {
+      const pn = form.personal_number.trim();
+      if (!pn) {
+        return setFeedback({ type: 'error', msg: 'יש להזין אימייל או מספר אישי' });
+      }
+      email = `${pn}@gadhan.local`;
+    }
     setSubmitting(true);
     try {
       const { data, error } = await supabase.functions.invoke('manage-users', {
         body: {
           action: 'create',
-          email: form.email.trim(),
+          email,
           password: form.password,
           full_name: form.full_name.trim(),
           role: form.role,
@@ -131,8 +141,14 @@ export default function UsersPage() {
             <input className="input" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
           </div>
           <div>
-            <label className="label">אימייל *</label>
-            <input type="email" className="input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+            <label className="label">אימייל</label>
+            <input
+              type="email"
+              className="input"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              placeholder="אופציונלי"
+            />
           </div>
           <div>
             <label className="label">סיסמה *</label>

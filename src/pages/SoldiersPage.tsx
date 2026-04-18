@@ -184,10 +184,10 @@ export default function SoldiersPage() {
               </button>
             </div>
 
-            {selected.pdf_drive_file_id && (
+            {selected.pdf_url && (
               <div className="mb-3">
                 <a
-                  href={`https://drive.google.com/file/d/${selected.pdf_drive_file_id}/view`}
+                  href={selected.pdf_url}
                   target="_blank"
                   rel="noreferrer"
                   className="text-sm text-emerald-700 hover:underline"

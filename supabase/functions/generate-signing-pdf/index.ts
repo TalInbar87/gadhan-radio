@@ -1,14 +1,11 @@
 // supabase/functions/generate-signing-pdf/index.ts
-// Generates a Hebrew PDF receipt of a soldier's CURRENT inventory after a signing,
-// uploads it to a per-unit Google Drive folder, and deletes the soldier's previous PDF.
+// Generates a Hebrew PDF receipt of a soldier's CURRENT inventory after a signing
+// and uploads it to Supabase Storage (bucket: signing-pdfs).
 //
-// Auth: SERVICE_ROLE_KEY (cron/internal) bypasses checks; otherwise the caller must be
-// either an admin or a רס"פ in the same unit as the signing.
+// Auth: SERVICE_ROLE_KEY (cron/internal) bypasses checks; otherwise the caller must
+// be either an admin or a רס"פ in the same unit as the signing.
 //
-// Required secrets:
-//   GOOGLE_SERVICE_ACCOUNT_JSON       same SA used by export-to-sheets
-//   GOOGLE_DRIVE_PARENT_FOLDER_ID     parent Drive folder shared with the SA
-// Provided automatically:
+// Provided automatically by the runtime:
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
 
 // deno-lint-ignore-file no-explicit-any
@@ -16,9 +13,8 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from 'https://esm.sh/pdf-lib@1.17.1';
 import fontkit from 'https://esm.sh/@pdf-lib/fontkit@1.1.1';
-import { getGoogleAccessToken } from '../_shared/google-auth.ts';
 
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
+const BUCKET = 'signing-pdfs';
 const HEEBO_URL = 'https://raw.githubusercontent.com/google/fonts/main/ofl/heebo/Heebo%5Bwght%5D.ttf';
 
 const corsHeaders = {
@@ -110,9 +106,9 @@ type SigningRow = {
     full_name: string;
     personal_number: string;
     phone: string | null;
-    pdf_drive_file_id: string | null;
+    pdf_url: string | null;
   } | null;
-  unit: { id: string; name: string; drive_folder_id: string | null } | null;
+  unit: { id: string; name: string } | null;
   team: { name: string } | null;
   performer: { full_name: string } | null;
 };
@@ -157,7 +153,6 @@ async function renderPdf(signing: SigningRow, inventory: InventoryRow[]): Promis
   const page = pdf.addPage([595.28, 841.89]); // A4
   const right = 545; // right margin x
   const left = 50;
-  const width = right - left;
   let y = 800;
 
   const typeLabel = { signing: 'החתמה', return: 'זיכוי', inspection: 'בדיקה' }[signing.type];
@@ -221,9 +216,8 @@ async function renderPdf(signing: SigningRow, inventory: InventoryRow[]): Promis
   } else {
     for (const row of inventory) {
       if (y < 80) {
-        // simple page-break safeguard
         const np = pdf.addPage([595.28, 841.89]);
-        Object.assign(page, np); // not perfect, but rare for normal soldiers
+        Object.assign(page, np);
         y = 800;
       }
       drawRightAligned(page, row.item_name, colNameX, y - 12, heebo, 11);
@@ -249,85 +243,6 @@ async function renderPdf(signing: SigningRow, inventory: InventoryRow[]): Promis
   return await pdf.save();
 }
 
-// ───────────── Drive helpers ─────────────
-async function ensureUnitFolder(
-  token: string,
-  parentFolderId: string,
-  unit: { id: string; name: string; drive_folder_id: string | null },
-  sb: any,
-): Promise<string> {
-  if (unit.drive_folder_id) return unit.drive_folder_id;
-  const res = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: unit.name,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: [parentFolderId],
-    }),
-  });
-  if (!res.ok) throw new Error(`Drive folder create failed: [${res.status}] ${await res.text()}`);
-  const j = await res.json();
-  const folderId = j.id as string;
-  await sb.from('units').update({ drive_folder_id: folderId }).eq('id', unit.id);
-  return folderId;
-}
-
-async function uploadPdf(
-  token: string,
-  folderId: string,
-  fileName: string,
-  bytes: Uint8Array,
-): Promise<string> {
-  const boundary = '----gadhan-radio-boundary-' + crypto.randomUUID();
-  const metadata = JSON.stringify({ name: fileName, parents: [folderId], mimeType: 'application/pdf' });
-  const enc = new TextEncoder();
-  const head = enc.encode(
-    `--${boundary}\r\n` +
-      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-      metadata +
-      `\r\n--${boundary}\r\n` +
-      'Content-Type: application/pdf\r\n\r\n',
-  );
-  const tail = enc.encode(`\r\n--${boundary}--`);
-  const body = new Uint8Array(head.length + bytes.length + tail.length);
-  body.set(head, 0);
-  body.set(bytes, head.length);
-  body.set(tail, head.length + bytes.length);
-
-  const res = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': `multipart/related; boundary=${boundary}`,
-      },
-      body,
-    },
-  );
-  if (!res.ok) throw new Error(`Drive upload failed: [${res.status}] ${await res.text()}`);
-  const j = await res.json();
-  return j.id as string;
-}
-
-async function deleteDriveFile(token: string, fileId: string): Promise<boolean> {
-  try {
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok && res.status !== 404) {
-      console.error('[generate-signing-pdf] old file delete failed', res.status, await res.text());
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error('[generate-signing-pdf] old file delete threw', e);
-    return false;
-  }
-}
-
 // ───────────── main ─────────────
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -336,11 +251,6 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    const saJson = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON');
-    const parentFolderId = Deno.env.get('GOOGLE_DRIVE_PARENT_FOLDER_ID');
-    if (!saJson || !parentFolderId) {
-      return json({ ok: false, error: 'Missing GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_DRIVE_PARENT_FOLDER_ID secret' }, 500);
-    }
 
     const body = await req.json().catch(() => ({}));
     const signingId = body?.signing_id as string | undefined;
@@ -353,8 +263,8 @@ serve(async (req) => {
       .from('signings')
       .select(
         `id, type, notes, created_at, unit_id,
-         soldier:soldiers(id, full_name, personal_number, phone, pdf_drive_file_id),
-         unit:units(id, name, drive_folder_id),
+         soldier:soldiers(id, full_name, personal_number, phone, pdf_url),
+         unit:units(id, name),
          team:teams(name),
          performer:profiles!signings_performed_by_fkey(full_name)`,
       )
@@ -374,24 +284,24 @@ serve(async (req) => {
     // 4. Render PDF
     const pdfBytes = await renderPdf(s, inventory);
 
-    // 5. Drive: get/create folder, upload, delete old
-    const token = await getGoogleAccessToken(saJson, DRIVE_SCOPE);
-    const folderId = await ensureUnitFolder(token, parentFolderId, s.unit, sb);
+    // 5. Upload to Supabase Storage (path = <soldier_id>.pdf, overwrite on each
+    //    signing — the bucket only ever holds one PDF per soldier).
+    const path = `${s.soldier.id}.pdf`;
+    const { error: upErr } = await sb.storage.from(BUCKET).upload(path, pdfBytes, {
+      contentType: 'application/pdf',
+      upsert: true,
+      cacheControl: '0',
+    });
+    if (upErr) throw new Error(`Storage upload failed: ${upErr.message}`);
 
-    const safeName = s.soldier.full_name.replace(/[\\/<>:"|?*]/g, '_');
-    const fileName = `${s.soldier.personal_number}__${safeName}.pdf`;
-    const oldFileId = s.soldier.pdf_drive_file_id;
-    const newFileId = await uploadPdf(token, folderId, fileName, pdfBytes);
+    // 6. Build the public URL with a cache-buster tied to this signing so the
+    //    browser always fetches the freshest PDF after each new signing.
+    const { data: pub } = sb.storage.from(BUCKET).getPublicUrl(path);
+    const url = `${pub.publicUrl}?v=${s.id}`;
 
-    // 6. Persist refs (soldier + signing both point at the new "current" PDF)
-    await sb.from('soldiers').update({ pdf_drive_file_id: newFileId }).eq('id', s.soldier.id);
-    await sb.from('signings').update({ pdf_drive_file_id: newFileId }).eq('id', s.id);
-
-    // 7. Delete old (best-effort)
-    let supersededDeleted = false;
-    if (oldFileId && oldFileId !== newFileId) {
-      supersededDeleted = await deleteDriveFile(token, oldFileId);
-    }
+    // 7. Persist on soldier (authoritative "current") and on this signing (history).
+    await sb.from('soldiers').update({ pdf_url: url }).eq('id', s.soldier.id);
+    await sb.from('signings').update({ pdf_url: url }).eq('id', s.id);
 
     // 8. Audit
     await sb.from('audit_logs').insert({
@@ -399,22 +309,14 @@ serve(async (req) => {
       target_type: 'signing',
       target_id: s.id,
       details: {
-        drive_file_id: newFileId,
-        drive_folder_id: folderId,
-        file_name: fileName,
+        bucket: BUCKET,
+        path,
+        url,
         bytes: pdfBytes.length,
-        superseded_file_id: oldFileId ?? null,
-        superseded_deleted: supersededDeleted,
       },
     });
 
-    return json({
-      ok: true,
-      drive_file_id: newFileId,
-      view_url: `https://drive.google.com/file/d/${newFileId}/view`,
-      bytes: pdfBytes.length,
-      superseded_deleted: supersededDeleted,
-    });
+    return json({ ok: true, url, bytes: pdfBytes.length });
   } catch (e) {
     console.error('[generate-signing-pdf] error', e);
     return json({ ok: false, error: (e as Error).message }, 500);

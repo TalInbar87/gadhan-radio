@@ -23,6 +23,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profileError, setProfileError] = useState<string | null>(null);
 
   async function loadProfile(userId: string) {
+    console.log('[auth] loadProfile start', userId);
     setProfileLoading(true);
     setProfileError(null);
     try {
@@ -36,6 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(null);
         setProfileError(error.message);
       } else {
+        console.log('[auth] loadProfile success', { active: data?.active, role: data?.role });
         setProfile(data);
       }
     } catch (e) {
@@ -49,10 +51,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    console.log('[auth] AuthProvider mount — calling getSession');
 
     (async () => {
       try {
         const { data } = await supabase.auth.getSession();
+        console.log('[auth] getSession resolved, has session:', !!data.session);
         if (cancelled) return;
         setSession(data.session);
         if (data.session) await loadProfile(data.session.user.id);

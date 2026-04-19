@@ -4,6 +4,8 @@
 export type Role = 'admin' | 'raspar';
 export type SigningType = 'signing' | 'return' | 'inspection';
 export type ItemAction = 'issued' | 'returned' | 'inspected';
+export type UnitSigningType = 'signing' | 'return';
+export type UnitItemAction = 'issued' | 'returned';
 
 export interface Profile {
   id: string;
@@ -70,6 +72,35 @@ export interface SigningItem {
   serial_number: string | null;
 }
 
+export interface UnitSigning {
+  id: string;
+  unit_id: string;
+  performed_by: string;
+  type: UnitSigningType;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface UnitSigningItem {
+  id: string;
+  unit_signing_id: string;
+  item_id: string;
+  quantity: number;
+  action: UnitItemAction;
+  serial_number: string | null;
+}
+
+export interface UnitItemStock {
+  unit_id: string;
+  item_id: string;
+  serial_number: string | null;
+  allocated: number;
+  returned_up: number;
+  stock: number;
+  distributed: number;
+  available: number;
+}
+
 export interface AuditLog {
   id: string;
   action: string;
@@ -89,6 +120,8 @@ export interface Database {
       items: { Row: Item; Insert: Partial<Item> & { name: string }; Update: Partial<Item> };
       signings: { Row: Signing; Insert: Partial<Signing> & { soldier_id: string; performed_by: string; unit_id: string; type: SigningType }; Update: Partial<Signing> };
       signing_items: { Row: SigningItem; Insert: Partial<SigningItem> & { signing_id: string; item_id: string; quantity: number; action: ItemAction }; Update: Partial<SigningItem> };
+      unit_signings: { Row: UnitSigning; Insert: Partial<UnitSigning> & { unit_id: string; performed_by: string; type: UnitSigningType }; Update: Partial<UnitSigning> };
+      unit_signing_items: { Row: UnitSigningItem; Insert: Partial<UnitSigningItem> & { unit_signing_id: string; item_id: string; quantity: number; action: UnitItemAction }; Update: Partial<UnitSigningItem> };
       audit_logs: { Row: AuditLog; Insert: Partial<AuditLog> & { action: string }; Update: Partial<AuditLog> };
     };
   };

@@ -3,7 +3,16 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { logAudit } from '../lib/audit';
 import { loadSoldierHeldItems, type HeldItem } from '../lib/heldItems';
+import { loadUnitAvailability } from '../lib/unitStock';
 import type { Item, SigningType, Soldier, Team, Unit } from '../lib/database.types';
+
+interface ItemAvailability {
+  itemId: string;
+  itemName: string;
+  available: number;
+  stock: number;
+  distributed: number;
+}
 
 type LineItem = { itemId: string; quantity: number; serialNumber: string };
 type ReturnSelection = { key: string; itemId: string; serialNumber: string | null; quantity: number };
@@ -23,6 +32,7 @@ export default function SignFormPage() {
   const [useExisting, setUseExisting] = useState(true);
   const [lines, setLines] = useState<LineItem[]>([{ itemId: '', quantity: 1, serialNumber: '' }]);
   const [heldItems, setHeldItems] = useState<HeldItem[]>([]);
+  const [availability, setAvailability] = useState<ItemAvailability[]>([]);
   const [returnChecks, setReturnChecks] = useState<Record<string, ReturnSelection>>({});
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -62,6 +72,15 @@ export default function SignFormPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [soldierId, soldiers, useExisting]);
 
+  // Load unit-level availability whenever the target unit changes.
+  // Only relevant for the 'signing' flow (returns/inspections don't consume unit stock).
+  useEffect(() => {
+    if (!unitId) { setAvailability([]); return; }
+    loadUnitAvailability(unitId)
+      .then(setAvailability)
+      .catch((e) => setFeedback({ type: 'error', msg: e.message }));
+  }, [unitId]);
+
   // Load currently-held items whenever an existing soldier is picked.
   useEffect(() => {
     if (!useExisting || !soldierId) {
@@ -86,6 +105,19 @@ export default function SignFormPage() {
   const teamsForUnit = useMemo(
     () => teams.filter((t) => t.unit_id === unitId),
     [teams, unitId]
+  );
+
+  // Item id → availability entry (for quick lookup in the dropdown / validation).
+  const availMap = useMemo(() => {
+    const m = new Map<string, ItemAvailability>();
+    for (const a of availability) m.set(a.itemId, a);
+    return m;
+  }, [availability]);
+
+  // Only show items that have stock in this unit (signing flow).
+  const signingItems = useMemo(
+    () => items.filter((it) => (availMap.get(it.id)?.available ?? 0) > 0),
+    [items, availMap],
   );
 
   const filteredSoldiers = useMemo(
@@ -143,6 +175,23 @@ export default function SignFormPage() {
     } else {
       const valid = lines.filter((l) => l.itemId && l.quantity > 0);
       if (valid.length === 0) return setFeedback({ type: 'error', msg: 'הוסף לפחות פריט אחד' });
+      // On 'signing', make sure we don't exceed unit availability. 'inspection'
+      // is a no-op against stock, so skip the check there.
+      if (signingType === 'signing') {
+        const totals = new Map<string, number>();
+        for (const l of valid) totals.set(l.itemId, (totals.get(l.itemId) ?? 0) + l.quantity);
+        for (const [itemId, qty] of totals) {
+          const a = availMap.get(itemId);
+          const avail = a?.available ?? 0;
+          if (qty > avail) {
+            const name = items.find((i) => i.id === itemId)?.name ?? 'פריט';
+            return setFeedback({
+              type: 'error',
+              msg: `חריגה ממלאי המסגרת עבור "${name}": מבוקש ${qty}, זמין ${avail}`,
+            });
+          }
+        }
+      }
       inserts = valid.map((l) => ({
         item_id: l.itemId,
         quantity: l.quantity,
@@ -226,6 +275,8 @@ export default function SignFormPage() {
       setLines([{ itemId: '', quantity: 1, serialNumber: '' }]);
       setNotes('');
       setNewSoldier({ full_name: '', personal_number: '', phone: '' });
+      // Refresh unit availability — numbers on the dropdown are now stale.
+      if (unitId) loadUnitAvailability(unitId).then(setAvailability).catch(() => {});
       // refresh held items so the panel reflects the new state
       if (useExisting && soldierId) {
         const held = await loadSoldierHeldItems(soldierId);
@@ -420,7 +471,17 @@ export default function SignFormPage() {
                     onChange={(e) => updateLine(idx, { itemId: e.target.value })}
                   >
                     <option value="">— בחר פריט —</option>
-                    {items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
+                    {signingItems.map((it) => {
+                      const a = availMap.get(it.id);
+                      return (
+                        <option key={it.id} value={it.id}>
+                          {it.name}{a ? ` (זמין: ${a.available})` : ''}
+                        </option>
+                      );
+                    })}
+                    {signingItems.length === 0 && unitId && (
+                      <option value="" disabled>אין פריטים זמינים למסגרת זו</option>
+                    )}
                   </select>
                   <div className="flex gap-2">
                     <input

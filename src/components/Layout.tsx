@@ -13,6 +13,9 @@ const reportsChildren = [
   { to: '/signings', label: 'כל ההחתמות' },
 ];
 const adminItems = [
+  { to: '/unit-sign', label: 'החתמת מסגרת' },
+  { to: '/unit-signings', label: 'החתמות מסגרות' },
+  { to: '/unit-stock', label: 'דוח מלאי מסגרות' },
   { to: '/items', label: 'ניהול פריטים' },
   { to: '/users', label: 'ניהול משתמשים' },
 ];

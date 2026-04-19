@@ -10,6 +10,9 @@ import ItemsPage from './pages/ItemsPage';
 import LogsPage from './pages/LogsPage';
 import UsersPage from './pages/UsersPage';
 import ReportsPage from './pages/ReportsPage';
+import UnitSignFormPage from './pages/UnitSignFormPage';
+import UnitSigningsPage from './pages/UnitSigningsPage';
+import UnitStockReportPage from './pages/UnitStockReportPage';
 
 export default function App() {
   return (
@@ -24,6 +27,9 @@ export default function App() {
         <Route path="logs" element={<LogsPage />} />
         <Route path="users" element={<ProtectedRoute requireAdmin><UsersPage /></ProtectedRoute>} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="unit-sign" element={<ProtectedRoute requireAdmin><UnitSignFormPage /></ProtectedRoute>} />
+        <Route path="unit-signings" element={<ProtectedRoute requireAdmin><UnitSigningsPage /></ProtectedRoute>} />
+        <Route path="unit-stock" element={<ProtectedRoute requireAdmin><UnitStockReportPage /></ProtectedRoute>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

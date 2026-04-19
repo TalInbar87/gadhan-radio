@@ -5,7 +5,7 @@ import { logAudit } from '../lib/audit';
 import type { Profile, Role, Unit } from '../lib/database.types';
 
 interface NewUserForm {
-  email: string;
+  username: string;
   password: string;
   full_name: string;
   role: Role;
@@ -15,7 +15,7 @@ interface NewUserForm {
 }
 
 const EMPTY_FORM: NewUserForm = {
-  email: '',
+  username: '',
   password: '',
   full_name: '',
   role: 'raspar',
@@ -23,6 +23,8 @@ const EMPTY_FORM: NewUserForm = {
   personal_number: '',
   phone: '',
 };
+
+const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 
 export default function UsersPage() {
   const { profile: me } = useAuth();
@@ -53,25 +55,19 @@ export default function UsersPage() {
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setFeedback(null);
+    const username = form.username.trim().toLowerCase();
+    if (!USERNAME_RE.test(username)) {
+      return setFeedback({ type: 'error', msg: 'שם משתמש: אנגלית/ספרות בלבד, 3–32 תווים (מותרים גם . _ -)' });
+    }
     if (form.password.length < 6) {
       return setFeedback({ type: 'error', msg: 'סיסמה חייבת להיות לפחות 6 תווים' });
-    }
-    // Email is optional — fall back to a synthetic address built from the
-    // personal number so Supabase Auth still has a unique login identifier.
-    let email = form.email.trim();
-    if (!email) {
-      const pn = form.personal_number.trim();
-      if (!pn) {
-        return setFeedback({ type: 'error', msg: 'יש להזין אימייל או מספר אישי' });
-      }
-      email = `${pn}@gadhan.local`;
     }
     setSubmitting(true);
     try {
       const { data, error } = await supabase.functions.invoke('manage-users', {
         body: {
           action: 'create',
-          email,
+          username,
           password: form.password,
           full_name: form.full_name.trim(),
           role: form.role,
@@ -141,13 +137,16 @@ export default function UsersPage() {
             <input className="input" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
           </div>
           <div>
-            <label className="label">אימייל</label>
+            <label className="label">שם משתמש *</label>
             <input
-              type="email"
               className="input"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="אופציונלי"
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, '') })}
+              pattern="[a-z0-9._\-]{3,32}"
+              title="אנגלית/ספרות בלבד, 3–32 תווים"
+              placeholder="לדוגמה: yossi.k"
+              required
+              dir="ltr"
             />
           </div>
           <div>
@@ -189,6 +188,7 @@ export default function UsersPage() {
           <thead>
             <tr>
               <th>שם</th>
+              <th>שם משתמש</th>
               <th>תפקיד</th>
               <th>מסגרת</th>
               <th>פעיל</th>
@@ -203,6 +203,7 @@ export default function UsersPage() {
                   <div className="font-medium">{p.full_name}</div>
                   <div className="text-xs text-slate-500">{p.id.slice(0, 8)}...</div>
                 </td>
+                <td className="font-mono text-sm" dir="ltr">{p.username ?? '—'}</td>
                 <td>
                   <select
                     className="input !py-1"

@@ -7,6 +7,7 @@ export type ItemAction = 'issued' | 'returned' | 'inspected';
 
 export interface Profile {
   id: string;
+  username: string | null;
   full_name: string;
   role: Role;
   unit_id: string | null;

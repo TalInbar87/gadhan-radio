@@ -52,8 +52,8 @@ serve(async (req) => {
 
     // 2. Dispatch.
     if (action === 'create') {
-      const { email, password, full_name, role, unit_id, personal_number, phone } = body as {
-        email: string;
+      const { username: rawUsername, password, full_name, role, unit_id, personal_number, phone } = body as {
+        username: string;
         password: string;
         full_name: string;
         role: 'admin' | 'raspar';
@@ -61,15 +61,27 @@ serve(async (req) => {
         personal_number?: string | null;
         phone?: string | null;
       };
-      if (!email || !password || !full_name || !role) {
+      const username = (rawUsername ?? '').trim().toLowerCase();
+      if (!username || !password || !full_name || !role) {
         return jsonResponse({ ok: false, error: 'Missing required fields' }, 400);
       }
+      if (!/^[a-z0-9._-]{3,32}$/.test(username)) {
+        return jsonResponse({ ok: false, error: 'שם המשתמש חייב להיות אנגלית/ספרות בלבד (3–32 תווים, מותרים גם . _ -)' }, 400);
+      }
 
+      // Uniqueness check up front (the unique index will also block, but this gives a clear error).
+      const { data: existing } = await admin
+        .from('profiles').select('id').eq('username', username).maybeSingle();
+      if (existing) {
+        return jsonResponse({ ok: false, error: 'שם המשתמש כבר קיים' }, 409);
+      }
+
+      const email = `${username}@gadhan.local`;
       const { data: created, error: createErr } = await admin.auth.admin.createUser({
         email,
         password,
         email_confirm: true,
-        user_metadata: { full_name },
+        user_metadata: { full_name, username },
       });
       if (createErr) return jsonResponse({ ok: false, error: createErr.message }, 400);
 
@@ -78,6 +90,7 @@ serve(async (req) => {
         .from('profiles')
         .upsert({
           id: created.user.id,
+          username,
           full_name,
           role,
           unit_id: unit_id || null,
@@ -96,7 +109,7 @@ serve(async (req) => {
         performed_by: who.user.id,
         target_type: 'profile',
         target_id: created.user.id,
-        details: { email, role, full_name },
+        details: { username, role, full_name },
       });
 
       return jsonResponse({ ok: true, id: created.user.id });

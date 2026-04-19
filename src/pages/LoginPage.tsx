@@ -5,7 +5,7 @@ import { useAuth } from '../lib/auth';
 export default function LoginPage() {
   const { session, signIn } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -16,6 +16,9 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+    // Supabase Auth stores the user with a synthetic email of
+    // `<username>@gadhan.local`. The UI only shows/accepts the username.
+    const email = `${username.trim().toLowerCase()}@gadhan.local`;
     const { error } = await signIn(email, password);
     setLoading(false);
     if (error) setError(error);
@@ -28,15 +31,16 @@ export default function LoginPage() {
         <img src="/logo.png" alt="גדחה״ן רדיו" className="w-20 h-20 object-contain mx-auto mb-3" />
         <p className="text-sm text-slate-500 text-center mb-6">ניהול ציוד קשר</p>
 
-        <label className="label" htmlFor="email">דוא"ל</label>
+        <label className="label" htmlFor="username">שם משתמש</label>
         <input
-          id="email"
-          type="email"
+          id="username"
+          type="text"
           autoComplete="username"
           className="input mb-4"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          value={username}
+          onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
           required
+          dir="ltr"
         />
 
         <label className="label" htmlFor="password">סיסמה</label>

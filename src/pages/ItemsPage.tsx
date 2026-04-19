@@ -89,21 +89,22 @@ export default function ItemsPage() {
     <div className="max-w-4xl">
       <h2 className="text-2xl font-bold mb-6">ניהול פריטים</h2>
 
-      <form onSubmit={handleAdd} className="card mb-6 grid grid-cols-3 gap-3">
+      <form onSubmit={handleAdd} className="card mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className="label">שם פריט</label>
           <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
         </div>
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <label className="label">תיאור (אופציונלי)</label>
           <input className="input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </div>
-        <div className="col-span-3 flex justify-end">
+        <div className="sm:col-span-3 flex justify-end">
           <button type="submit" className="btn-primary">+ הוסף פריט</button>
         </div>
       </form>
 
       <div className="card">
+        <div className="table-wrap">
         <table className="table-base">
           <thead>
             <tr>
@@ -145,6 +146,7 @@ export default function ItemsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {block && (

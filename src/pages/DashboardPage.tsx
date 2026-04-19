@@ -44,7 +44,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">
         <StatCard title="החתמות היום" value={stats.todaySignings} loading={loading} />
         <StatCard title='סה"כ החתמות' value={stats.totalSignings} loading={loading} />
         <StatCard title="חיילים רשומים" value={stats.totalSoldiers} loading={loading} />

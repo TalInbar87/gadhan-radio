@@ -111,8 +111,8 @@ export default function UsersPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-2xl font-bold">ניהול משתמשים</h2>
+      <div className="flex items-center justify-between mb-2 gap-3 flex-wrap">
+        <h2 className="text-xl md:text-2xl font-bold">ניהול משתמשים</h2>
         <button
           onClick={() => { setShowAdd((v) => !v); setFeedback(null); }}
           className="btn-primary"
@@ -131,7 +131,7 @@ export default function UsersPage() {
       )}
 
       {showAdd && (
-        <form onSubmit={handleCreate} className="card mb-6 grid grid-cols-3 gap-3">
+        <form onSubmit={handleCreate} className="card mb-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           <div>
             <label className="label">שם מלא *</label>
             <input className="input" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
@@ -175,7 +175,7 @@ export default function UsersPage() {
             <label className="label">טלפון</label>
             <input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           </div>
-          <div className="col-span-3 flex justify-end">
+          <div className="sm:col-span-2 md:col-span-3 flex justify-end">
             <button type="submit" disabled={submitting} className="btn-primary">
               {submitting ? 'יוצר...' : 'צור משתמש'}
             </button>
@@ -184,6 +184,7 @@ export default function UsersPage() {
       )}
 
       <div className="card">
+        <div className="table-wrap">
         <table className="table-base">
           <thead>
             <tr>
@@ -248,6 +249,7 @@ export default function UsersPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

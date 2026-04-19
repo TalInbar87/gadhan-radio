@@ -79,7 +79,7 @@ export default function SoldiersPage() {
       </div>
 
       {showAdd && (
-        <form onSubmit={handleAdd} className="card mb-6 grid grid-cols-5 gap-3">
+        <form onSubmit={handleAdd} className="card mb-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
           <div>
             <label className="label">שם מלא</label>
             <input className="input" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
@@ -132,7 +132,7 @@ export default function SoldiersPage() {
               ))}
             </select>
           </div>
-          <div className="col-span-5 flex justify-end">
+          <div className="sm:col-span-2 md:col-span-5 flex justify-end">
             <button type="submit" className="btn-primary">שמור</button>
           </div>
         </form>
@@ -145,6 +145,7 @@ export default function SoldiersPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        <div className="table-wrap">
         <table className="table-base">
           <thead>
             <tr>
@@ -178,6 +179,7 @@ export default function SoldiersPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {selected && (

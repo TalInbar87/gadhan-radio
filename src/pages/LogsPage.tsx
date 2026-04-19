@@ -45,6 +45,7 @@ export default function LogsPage() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
+        <div className="table-wrap">
         <table className="table-base">
           <thead>
             <tr>
@@ -74,6 +75,7 @@ export default function LogsPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

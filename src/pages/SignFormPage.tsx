@@ -248,7 +248,7 @@ export default function SignFormPage() {
     <div className="max-w-3xl">
       <h2 className="text-2xl font-bold mb-6">החתמה חדשה</h2>
       <form onSubmit={handleSubmit} className="card space-y-5">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label">סוג פעולה</label>
             <select className="input" value={signingType} onChange={(e) => setSigningType(e.target.value as SigningType)}>
@@ -306,7 +306,7 @@ export default function SignFormPage() {
               ))}
             </select>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="label">שם מלא *</label>
                 <input className="input" value={newSoldier.full_name} onChange={(e) => setNewSoldier({ ...newSoldier, full_name: e.target.value })} required />
@@ -413,7 +413,7 @@ export default function SignFormPage() {
             </div>
             <div className="space-y-2">
               {lines.map((line, idx) => (
-                <div key={idx} className="flex gap-2 items-start">
+                <div key={idx} className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start border sm:border-0 border-slate-200 rounded-lg p-2 sm:p-0">
                   <select
                     className="input flex-1"
                     value={line.itemId}
@@ -422,23 +422,25 @@ export default function SignFormPage() {
                     <option value="">— בחר פריט —</option>
                     {items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
                   </select>
-                  <input
-                    type="text"
-                    placeholder="צ' (מס׳ פריט)"
-                    className="input w-36"
-                    value={line.serialNumber}
-                    onChange={(e) => updateLine(idx, { serialNumber: e.target.value })}
-                  />
-                  <input
-                    type="number"
-                    min={1}
-                    className="input w-20"
-                    value={line.quantity}
-                    onChange={(e) => updateLine(idx, { quantity: parseInt(e.target.value) || 1 })}
-                  />
-                  {lines.length > 1 && (
-                    <button type="button" onClick={() => removeLine(idx)} className="btn-ghost text-red-600 !px-3">×</button>
-                  )}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="צ' (מס׳ פריט)"
+                      className="input flex-1 sm:w-36 sm:flex-none"
+                      value={line.serialNumber}
+                      onChange={(e) => updateLine(idx, { serialNumber: e.target.value })}
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      className="input w-20"
+                      value={line.quantity}
+                      onChange={(e) => updateLine(idx, { quantity: parseInt(e.target.value) || 1 })}
+                    />
+                    {lines.length > 1 && (
+                      <button type="button" onClick={() => removeLine(idx)} className="btn-ghost text-red-600 !px-3">×</button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

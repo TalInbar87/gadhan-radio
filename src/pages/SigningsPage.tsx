@@ -110,13 +110,13 @@ export default function SigningsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">כל ההחתמות</h2>
+      <div className="flex items-center justify-between mb-4 md:mb-6 gap-3 flex-wrap">
+        <h2 className="text-xl md:text-2xl font-bold">כל ההחתמות</h2>
         <div className="text-sm text-slate-500">{filtered.length} מתוך {rows.length}</div>
       </div>
 
       <div className="card mb-4">
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
           <div>
             <label className="label">מסגרת</label>
             <select
@@ -178,6 +178,7 @@ export default function SigningsPage() {
         {loading ? (
           <div className="text-center text-slate-500 py-6">טוען...</div>
         ) : (
+          <div className="table-wrap">
           <table className="table-base">
             <thead>
               <tr>
@@ -245,6 +246,7 @@ export default function SigningsPage() {
               )}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

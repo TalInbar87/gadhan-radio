@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/auth';
 import { logAudit } from '../lib/audit';
 
 export default function ReportsPage() {
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === 'admin';
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -104,15 +107,17 @@ export default function ReportsPage() {
         </button>
       </div>
 
-      <div className="card mb-4">
-        <h3 className="font-semibold mb-2">ייצוא ל-Google Sheets</h3>
-        <p className="text-sm text-slate-600 mb-4">
-          ייצוא ידני של כל הנתונים לגיליון המוגדר. ייצוא אוטומטי רץ פעם ביום.
-        </p>
-        <button onClick={exportToSheets} disabled={busy} className="btn-primary">
-          {busy ? 'שולח...' : 'ייצא עכשיו ל-Sheets'}
-        </button>
-      </div>
+      {isAdmin && (
+        <div className="card mb-4">
+          <h3 className="font-semibold mb-2">ייצוא ל-Google Sheets</h3>
+          <p className="text-sm text-slate-600 mb-4">
+            ייצוא ידני של כל הנתונים לגיליון המוגדר. ייצוא אוטומטי רץ פעם ביום. (זמין למנהל מערכת בלבד)
+          </p>
+          <button onClick={exportToSheets} disabled={busy} className="btn-primary">
+            {busy ? 'שולח...' : 'ייצא עכשיו ל-Sheets'}
+          </button>
+        </div>
+      )}
 
       {msg && (
         <div className={`rounded-lg px-3 py-2 text-sm ${msg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>

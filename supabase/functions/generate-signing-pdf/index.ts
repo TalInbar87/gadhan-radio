@@ -40,15 +40,9 @@ async function loadHeebo(): Promise<Uint8Array> {
 }
 
 // ───────────── RTL helper ─────────────
-// pdf-lib has no bidi engine. To render Hebrew correctly we reverse the string,
-// then un-reverse runs of LTR-typed characters (digits, Latin letters, common ASCII
-// punctuation) so that numbers like 1234567 stay readable in the right direction.
-function rtl(s: string): string {
-  if (!s) return s;
-  const reversed = s.split('').reverse().join('');
-  return reversed.replace(/[A-Za-z0-9.,:_\-/+()@]+/g, (m) => m.split('').reverse().join(''));
-}
-
+// Modern PDF viewers (Chrome, Firefox, Acrobat, Preview) apply bidi reordering
+// on their own, so we pass Hebrew text through in logical Unicode order and let
+// the viewer handle direction.
 function drawRightAligned(
   page: PDFPage,
   text: string,
@@ -58,9 +52,8 @@ function drawRightAligned(
   size: number,
   color = rgb(0, 0, 0),
 ) {
-  const visual = rtl(text);
-  const w = font.widthOfTextAtSize(visual, size);
-  page.drawText(visual, { x: rightX - w, y, size, font, color });
+  const w = font.widthOfTextAtSize(text, size);
+  page.drawText(text, { x: rightX - w, y, size, font, color });
 }
 
 // ───────────── auth check ─────────────

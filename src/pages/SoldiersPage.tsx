@@ -49,10 +49,16 @@ export default function SoldiersPage() {
 
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
+    if (!/^\d{7}$/.test(form.personal_number)) {
+      return alert('מספר אישי חייב להיות 7 ספרות בדיוק');
+    }
+    if (!/^05\d{8}$/.test(form.phone)) {
+      return alert('טלפון חייב להיות מספר סלולרי ישראלי תקין (05XXXXXXXX)');
+    }
     const { data, error } = await supabase.from('soldiers').insert({
       full_name: form.full_name,
       personal_number: form.personal_number,
-      phone: form.phone || null,
+      phone: form.phone,
       unit_id: form.unit_id,
       team_id: form.team_id || null,
     }).select().single();
@@ -80,11 +86,30 @@ export default function SoldiersPage() {
           </div>
           <div>
             <label className="label">מספר אישי</label>
-            <input className="input" value={form.personal_number} onChange={(e) => setForm({ ...form, personal_number: e.target.value })} required />
+            <input
+              className="input"
+              inputMode="numeric"
+              pattern="\d{7}"
+              title="7 ספרות בדיוק"
+              maxLength={7}
+              value={form.personal_number}
+              onChange={(e) => setForm({ ...form, personal_number: e.target.value.replace(/\D/g, '') })}
+              required
+            />
           </div>
           <div>
             <label className="label">טלפון</label>
-            <input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            <input
+              className="input"
+              inputMode="tel"
+              pattern="05\d{8}"
+              title="מספר סלולרי ישראלי: 05XXXXXXXX"
+              maxLength={10}
+              placeholder="05XXXXXXXX"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/\D/g, '') })}
+              required
+            />
           </div>
           <div>
             <label className="label">מסגרת</label>

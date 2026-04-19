@@ -52,6 +52,16 @@ export default function SignFormPage() {
     if (isReturn) setUseExisting(true);
   }, [isReturn]);
 
+  // When an existing soldier is picked, mirror their unit/team into the form.
+  useEffect(() => {
+    if (!useExisting || !soldierId) return;
+    const s = soldiers.find((x) => x.id === soldierId);
+    if (!s) return;
+    if (s.unit_id && s.unit_id !== unitId) setUnitId(s.unit_id);
+    setTeamId(s.team_id ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [soldierId, soldiers, useExisting]);
+
   // Load currently-held items whenever an existing soldier is picked.
   useEffect(() => {
     if (!useExisting || !soldierId) {
@@ -113,8 +123,15 @@ export default function SignFormPage() {
     if (!profile) return;
     if (!unitId) return setFeedback({ type: 'error', msg: 'בחר מסגרת' });
     if (teamsForUnit.length > 0 && !teamId) return setFeedback({ type: 'error', msg: 'בחר צוות' });
-    if (!useExisting && !newSoldier.full_name) return setFeedback({ type: 'error', msg: 'הזן שם חייל' });
-    if (!useExisting && !newSoldier.personal_number) return setFeedback({ type: 'error', msg: 'הזן מספר אישי' });
+    if (!useExisting) {
+      if (!newSoldier.full_name) return setFeedback({ type: 'error', msg: 'הזן שם חייל' });
+      if (!/^\d{7}$/.test(newSoldier.personal_number)) {
+        return setFeedback({ type: 'error', msg: 'מספר אישי חייב להיות 7 ספרות בדיוק' });
+      }
+      if (!/^05\d{8}$/.test(newSoldier.phone)) {
+        return setFeedback({ type: 'error', msg: 'טלפון חייב להיות מספר סלולרי ישראלי תקין (05XXXXXXXX)' });
+      }
+    }
     if (useExisting && !soldierId) return setFeedback({ type: 'error', msg: 'בחר חייל קיים' });
 
     let inserts: Array<{ item_id: string; quantity: number; serial_number: string | null }> = [];
@@ -142,7 +159,7 @@ export default function SignFormPage() {
           .insert({
             full_name: newSoldier.full_name,
             personal_number: newSoldier.personal_number,
-            phone: newSoldier.phone || null,
+            phone: newSoldier.phone,
             unit_id: unitId,
             team_id: teamId || null,
           })
@@ -204,7 +221,7 @@ export default function SignFormPage() {
       setFeedback(
         pdfWarning
           ? { type: 'warning', msg: `נשמר בהצלחה. ⚠ העלאת PDF נכשלה: ${pdfWarning}` }
-          : { type: 'success', msg: 'נשמר בהצלחה — PDF הועלה ל-Drive' },
+          : { type: 'success', msg: 'נשמר בהצלחה — PDF נוצר' },
       );
       setLines([{ itemId: '', quantity: 1, serialNumber: '' }]);
       setNotes('');
@@ -296,11 +313,30 @@ export default function SignFormPage() {
               </div>
               <div>
                 <label className="label">מספר אישי *</label>
-                <input className="input" value={newSoldier.personal_number} onChange={(e) => setNewSoldier({ ...newSoldier, personal_number: e.target.value })} required />
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  pattern="\d{7}"
+                  title="7 ספרות בדיוק"
+                  maxLength={7}
+                  value={newSoldier.personal_number}
+                  onChange={(e) => setNewSoldier({ ...newSoldier, personal_number: e.target.value.replace(/\D/g, '') })}
+                  required
+                />
               </div>
               <div>
-                <label className="label">טלפון</label>
-                <input className="input" value={newSoldier.phone} onChange={(e) => setNewSoldier({ ...newSoldier, phone: e.target.value })} />
+                <label className="label">טלפון *</label>
+                <input
+                  className="input"
+                  inputMode="tel"
+                  pattern="05\d{8}"
+                  title="מספר סלולרי ישראלי: 05XXXXXXXX"
+                  maxLength={10}
+                  placeholder="05XXXXXXXX"
+                  value={newSoldier.phone}
+                  onChange={(e) => setNewSoldier({ ...newSoldier, phone: e.target.value.replace(/\D/g, '') })}
+                  required
+                />
               </div>
             </div>
           )}

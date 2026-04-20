@@ -9,13 +9,6 @@ import {
   removeItemSerial,
   type SerialLocation,
 } from '../lib/itemSerials';
-import {
-  addBundleComponent,
-  loadBundleComponents,
-  removeBundleComponent,
-  updateBundleComponentQuantity,
-  type BundleComponent,
-} from '../lib/itemBundles';
 import type { Item, Unit } from '../lib/database.types';
 
 type BlockReason = 'holders' | 'history';
@@ -43,15 +36,6 @@ interface EditModal {
   error: string | null;
 }
 
-interface BundleModal {
-  item: Item;
-  rows: BundleComponent[];
-  addComponentId: string;
-  addQuantity: number;
-  busy: boolean;
-  error: string | null;
-}
-
 export default function ItemsPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
@@ -60,7 +44,6 @@ export default function ItemsPage() {
   const [block, setBlock] = useState<BlockModal | null>(null);
   const [serialsModal, setSerialsModal] = useState<SerialsModal | null>(null);
   const [editModal, setEditModal] = useState<EditModal | null>(null);
-  const [bundleModal, setBundleModal] = useState<BundleModal | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   async function load() {
@@ -233,81 +216,6 @@ export default function ItemsPage() {
       load();
     } catch (e) {
       setEditModal({ ...editModal, busy: false, error: (e as Error).message });
-    }
-  }
-
-  async function openBundleModal(item: Item) {
-    try {
-      const rows = await loadBundleComponents(item.id);
-      setBundleModal({
-        item,
-        rows,
-        addComponentId: '',
-        addQuantity: 1,
-        busy: false,
-        error: null,
-      });
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  }
-
-  async function handleAddComponent() {
-    if (!bundleModal) return;
-    if (!bundleModal.addComponentId) {
-      setBundleModal({ ...bundleModal, error: 'בחר פריט' });
-      return;
-    }
-    if (bundleModal.addComponentId === bundleModal.item.id) {
-      setBundleModal({ ...bundleModal, error: 'פריט לא יכול להיות רכיב של עצמו' });
-      return;
-    }
-    if (bundleModal.rows.some((r) => r.componentItemId === bundleModal.addComponentId)) {
-      setBundleModal({ ...bundleModal, error: 'הרכיב כבר קיים בערכה' });
-      return;
-    }
-    setBundleModal({ ...bundleModal, busy: true, error: null });
-    try {
-      await addBundleComponent(bundleModal.item.id, bundleModal.addComponentId, bundleModal.addQuantity);
-      await logAudit({
-        action: 'item.bundle_add_component',
-        targetType: 'item',
-        targetId: bundleModal.item.id,
-        details: { component_item_id: bundleModal.addComponentId, quantity: bundleModal.addQuantity },
-      });
-      const rows = await loadBundleComponents(bundleModal.item.id);
-      setBundleModal({ ...bundleModal, rows, addComponentId: '', addQuantity: 1, busy: false });
-    } catch (e) {
-      setBundleModal({ ...bundleModal, busy: false, error: (e as Error).message });
-    }
-  }
-
-  async function handleUpdateComponentQty(row: BundleComponent, qty: number) {
-    if (!bundleModal || qty < 1) return;
-    try {
-      await updateBundleComponentQuantity(row.id, qty);
-      const rows = await loadBundleComponents(bundleModal.item.id);
-      setBundleModal({ ...bundleModal, rows });
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  }
-
-  async function handleRemoveComponent(row: BundleComponent) {
-    if (!bundleModal) return;
-    if (!confirm(`להסיר את "${row.componentName}" מהערכה?`)) return;
-    try {
-      await removeBundleComponent(row.id);
-      await logAudit({
-        action: 'item.bundle_remove_component',
-        targetType: 'item',
-        targetId: bundleModal.item.id,
-        details: { component_item_id: row.componentItemId },
-      });
-      const rows = await loadBundleComponents(bundleModal.item.id);
-      setBundleModal({ ...bundleModal, rows });
-    } catch (e) {
-      alert((e as Error).message);
     }
   }
 
@@ -510,12 +418,6 @@ export default function ItemsPage() {
                         className="text-sm text-emerald-700 hover:text-emerald-900"
                       >
                         ערוך
-                      </button>
-                      <button
-                        onClick={() => openBundleModal(it)}
-                        className="text-sm text-indigo-700 hover:text-indigo-900"
-                      >
-                        ניהול ערכה
                       </button>
                       <button
                         onClick={() => openSerialsModal(it)}
@@ -782,118 +684,6 @@ export default function ItemsPage() {
         </div>
       )}
 
-      {bundleModal && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-          onClick={() => !bundleModal.busy && setBundleModal(null)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-bold">ניהול ערכה — {bundleModal.item.name}</h3>
-                <p className="text-xs text-slate-500">
-                  פריטים המרכיבים את הערכה. בהחתמה של הערכה לא נחתם עדיין אוטומטית על כל הרכיבים — זה רק קטלוג.
-                </p>
-              </div>
-              <button
-                onClick={() => setBundleModal(null)}
-                className="text-slate-400 hover:text-slate-700 text-xl leading-none"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="mb-4 grid grid-cols-1 sm:grid-cols-[1fr_100px_auto] gap-2 items-end">
-              <div>
-                <label className="label">הוסף רכיב</label>
-                <select
-                  className="input"
-                  value={bundleModal.addComponentId}
-                  onChange={(e) => setBundleModal({ ...bundleModal, addComponentId: e.target.value })}
-                  disabled={bundleModal.busy}
-                >
-                  <option value="">בחר פריט...</option>
-                  {items
-                    .filter((i) => i.id !== bundleModal.item.id && !bundleModal.rows.some((r) => r.componentItemId === i.id))
-                    .map((i) => (
-                      <option key={i.id} value={i.id}>{i.name}</option>
-                    ))}
-                </select>
-              </div>
-              <div>
-                <label className="label">כמות</label>
-                <input
-                  type="number"
-                  min={1}
-                  className="input"
-                  value={bundleModal.addQuantity}
-                  onChange={(e) => setBundleModal({ ...bundleModal, addQuantity: Math.max(1, Number(e.target.value) || 1) })}
-                  disabled={bundleModal.busy}
-                />
-              </div>
-              <button
-                onClick={handleAddComponent}
-                disabled={bundleModal.busy || !bundleModal.addComponentId}
-                className="btn-primary !py-1.5 !px-3 text-sm"
-              >
-                {bundleModal.busy ? '...' : 'הוסף'}
-              </button>
-            </div>
-            {bundleModal.error && (
-              <div className="text-sm text-red-700 mb-2">{bundleModal.error}</div>
-            )}
-
-            <div className="border border-slate-200 rounded-lg max-h-80 overflow-auto">
-              {bundleModal.rows.length === 0 ? (
-                <div className="text-sm text-slate-500 text-center py-6">אין רכיבים בערכה עדיין</div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      <th className="text-right p-2 font-medium">רכיב</th>
-                      <th className="text-right p-2 font-medium w-32">כמות</th>
-                      <th className="w-16"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bundleModal.rows.map((r) => (
-                      <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                        <td className="p-2">{r.componentName}</td>
-                        <td className="p-2">
-                          <input
-                            type="number"
-                            min={1}
-                            className="input !py-1 !px-2 w-20 text-sm"
-                            value={r.quantity}
-                            onChange={(e) => handleUpdateComponentQty(r, Math.max(1, Number(e.target.value) || 1))}
-                          />
-                        </td>
-                        <td className="p-2 text-right">
-                          <button
-                            onClick={() => handleRemoveComponent(r)}
-                            className="text-xs text-red-600 hover:text-red-800"
-                          >
-                            הסר
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <div className="flex justify-end mt-5">
-              <button onClick={() => setBundleModal(null)} className="btn-secondary">
-                סגור
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -4,8 +4,9 @@ import { useAuth } from '../lib/auth';
 import { logAudit } from '../lib/audit';
 import { loadSoldierHeldItems, type HeldItem } from '../lib/heldItems';
 import { loadUnitAvailability, type UnitAvailability } from '../lib/unitStock';
-import type { Item, SigningType, Soldier, Team, Unit } from '../lib/database.types';
+import type { Item, Soldier, Team, Unit } from '../lib/database.types';
 
+type OpMode = 'signing' | 'return' | 'transfer';
 type LineItem = { itemId: string; quantity: number; serialNumber: string };
 type ReturnSelection = { key: string; itemId: string; serialNumber: string | null; quantity: number };
 
@@ -16,12 +17,16 @@ export default function SignFormPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [soldiers, setSoldiers] = useState<Soldier[]>([]);
 
-  const [signingType, setSigningType] = useState<SigningType>('signing');
+  const [signingType, setSigningType] = useState<OpMode>('signing');
   const [unitId, setUnitId] = useState<string>('');
   const [teamId, setTeamId] = useState<string>('');
   const [soldierId, setSoldierId] = useState<string>('');
   const [newSoldier, setNewSoldier] = useState({ full_name: '', personal_number: '', phone: '' });
   const [useExisting, setUseExisting] = useState(true);
+  // Transfer-only state: the receiving soldier.
+  const [receiverSoldierId, setReceiverSoldierId] = useState<string>('');
+  const [useExistingReceiver, setUseExistingReceiver] = useState(true);
+  const [newReceiver, setNewReceiver] = useState({ full_name: '', personal_number: '', phone: '' });
   const [lines, setLines] = useState<LineItem[]>([{ itemId: '', quantity: 1, serialNumber: '' }]);
   const [heldItems, setHeldItems] = useState<HeldItem[]>([]);
   const [availability, setAvailability] = useState<UnitAvailability[]>([]);
@@ -32,6 +37,9 @@ export default function SignFormPage() {
 
   const isAdmin = profile?.role === 'admin';
   const isReturn = signingType === 'return';
+  const isTransfer = signingType === 'transfer';
+  // Both "return" and "transfer" operate on the selected soldier's HELD items.
+  const usesHeldItems = isReturn || isTransfer;
 
   useEffect(() => {
     (async () => {
@@ -49,10 +57,10 @@ export default function SignFormPage() {
     })();
   }, [isAdmin, profile?.unit_id]);
 
-  // Returns must use existing soldier — flip automatically.
+  // Returns + transfers both operate on an EXISTING giver soldier.
   useEffect(() => {
-    if (isReturn) setUseExisting(true);
-  }, [isReturn]);
+    if (isReturn || isTransfer) setUseExisting(true);
+  }, [isReturn, isTransfer]);
 
   // When an existing soldier is picked, mirror their unit/team into the form.
   useEffect(() => {
@@ -73,7 +81,8 @@ export default function SignFormPage() {
       .catch((e) => setFeedback({ type: 'error', msg: e.message }));
   }, [unitId]);
 
-  // Load currently-held items whenever an existing soldier is picked.
+  // Load currently-held items whenever an existing giver is picked.
+  // Relevant for both the return and transfer flows.
   useEffect(() => {
     if (!useExisting || !soldierId) {
       setHeldItems([]);
@@ -83,7 +92,6 @@ export default function SignFormPage() {
     loadSoldierHeldItems(soldierId)
       .then((held) => {
         setHeldItems(held);
-        // pre-build the return form state with all unchecked, full quantity available
         const checks: Record<string, ReturnSelection> = {};
         for (const h of held) {
           const key = `${h.itemId}::${h.serialNumber ?? ''}`;
@@ -141,6 +149,29 @@ export default function SignFormPage() {
     }));
   }
 
+  async function triggerPdf(signingId: string): Promise<string | null> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-signing-pdf`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ signing_id: signingId }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        return `[${res.status}] ${t}`;
+      }
+      return null;
+    } catch (e) {
+      return (e as Error).message;
+    }
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFeedback(null);
@@ -158,12 +189,35 @@ export default function SignFormPage() {
     }
     if (useExisting && !soldierId) return setFeedback({ type: 'error', msg: 'בחר חייל קיים' });
 
+    // Transfer-specific: validate the receiver block.
+    if (isTransfer) {
+      if (useExistingReceiver) {
+        if (!receiverSoldierId) return setFeedback({ type: 'error', msg: 'בחר חייל מקבל' });
+        if (receiverSoldierId === soldierId) {
+          return setFeedback({ type: 'error', msg: 'חייל המקבל חייב להיות שונה מהחייל המוסר' });
+        }
+      } else {
+        if (!newReceiver.full_name) return setFeedback({ type: 'error', msg: 'הזן שם חייל מקבל' });
+        if (!/^\d{7}$/.test(newReceiver.personal_number)) {
+          return setFeedback({ type: 'error', msg: 'מספר אישי של המקבל חייב להיות 7 ספרות בדיוק' });
+        }
+        if (!/^05\d{8}$/.test(newReceiver.phone)) {
+          return setFeedback({ type: 'error', msg: 'טלפון המקבל חייב להיות מספר סלולרי ישראלי תקין (05XXXXXXXX)' });
+        }
+      }
+    }
+
     let inserts: Array<{ item_id: string; quantity: number; serial_number: string | null }> = [];
-    if (isReturn) {
+    if (usesHeldItems) {
       inserts = Object.values(returnChecks)
         .filter((r) => r.quantity > 0)
         .map((r) => ({ item_id: r.itemId, quantity: r.quantity, serial_number: r.serialNumber }));
-      if (inserts.length === 0) return setFeedback({ type: 'error', msg: 'סמן לפחות פריט אחד לזיכוי' });
+      if (inserts.length === 0) {
+        return setFeedback({
+          type: 'error',
+          msg: isTransfer ? 'סמן לפחות פריט אחד להעברה' : 'סמן לפחות פריט אחד לזיכוי',
+        });
+      }
     } else {
       const valid = lines.filter((l) => l.itemId && l.quantity > 0);
       if (valid.length === 0) return setFeedback({ type: 'error', msg: 'הוסף לפחות פריט אחד' });
@@ -239,6 +293,104 @@ export default function SignFormPage() {
         finalSoldierId = created.id;
       }
 
+      if (isTransfer) {
+        // Resolve (or create) the receiving soldier.
+        let receiverId = receiverSoldierId;
+        if (!useExistingReceiver) {
+          const { data: createdRcv, error: rcvErr } = await supabase
+            .from('soldiers')
+            .insert({
+              full_name: newReceiver.full_name,
+              personal_number: newReceiver.personal_number,
+              phone: newReceiver.phone,
+              unit_id: unitId,
+              team_id: teamId || null,
+            })
+            .select()
+            .single();
+          if (rcvErr) throw rcvErr;
+          receiverId = createdRcv.id;
+        }
+
+        // 1) Return side — items leave the giver.
+        const { data: retSign, error: retErr } = await supabase
+          .from('signings')
+          .insert({
+            soldier_id: finalSoldierId,
+            performed_by: profile.id,
+            unit_id: unitId,
+            team_id: teamId || null,
+            type: 'return',
+            notes: notes ? `${notes} (העברה)` : 'העברה לחייל אחר',
+          })
+          .select()
+          .single();
+        if (retErr) throw retErr;
+        const { error: retItemsErr } = await supabase.from('signing_items').insert(
+          inserts.map((i) => ({ ...i, signing_id: retSign.id, action: 'returned' })),
+        );
+        if (retItemsErr) throw retItemsErr;
+
+        // 2) Signing side — same items land on the receiver.
+        const { data: issueSign, error: issueErr } = await supabase
+          .from('signings')
+          .insert({
+            soldier_id: receiverId,
+            performed_by: profile.id,
+            unit_id: unitId,
+            team_id: teamId || null,
+            type: 'signing',
+            notes: notes ? `${notes} (העברה)` : 'העברה מחייל אחר',
+          })
+          .select()
+          .single();
+        if (issueErr) throw issueErr;
+        const { error: issueItemsErr } = await supabase.from('signing_items').insert(
+          inserts.map((i) => ({ ...i, signing_id: issueSign.id, action: 'issued' })),
+        );
+        if (issueItemsErr) throw issueItemsErr;
+
+        await logAudit({
+          action: 'signing.transfer',
+          targetType: 'signing',
+          targetId: issueSign.id,
+          details: {
+            from_soldier_id: finalSoldierId,
+            to_soldier_id: receiverId,
+            return_signing_id: retSign.id,
+            issue_signing_id: issueSign.id,
+            items: inserts.length,
+          },
+        });
+
+        // Regenerate PDFs for BOTH soldiers (best-effort, in parallel).
+        const [w1, w2] = await Promise.all([
+          triggerPdf(retSign.id),
+          triggerPdf(issueSign.id),
+        ]);
+        const warnings = [w1, w2].filter((w): w is string => !!w);
+        setFeedback(
+          warnings.length
+            ? { type: 'warning', msg: `ההעברה נשמרה. ⚠ עדכון PDF נכשל: ${warnings.join(' | ')}` }
+            : { type: 'success', msg: 'ההעברה נשמרה — PDF עודכן לשני החיילים' },
+        );
+        setNotes('');
+        setNewReceiver({ full_name: '', personal_number: '', phone: '' });
+        setReceiverSoldierId('');
+        // refresh held items for the giver so the panel reflects the new state
+        if (soldierId) {
+          const held = await loadSoldierHeldItems(soldierId);
+          setHeldItems(held);
+          const checks: Record<string, ReturnSelection> = {};
+          for (const h of held) {
+            const key = `${h.itemId}::${h.serialNumber ?? ''}`;
+            checks[key] = { key, itemId: h.itemId, serialNumber: h.serialNumber, quantity: 0 };
+          }
+          setReturnChecks(checks);
+        }
+        return;
+      }
+
       const { data: signing, error: sigErr } = await supabase
         .from('signings')
         .insert({
@@ -266,27 +418,8 @@ export default function SignFormPage() {
         details: { soldier_id: finalSoldierId, items: inserts.length },
       });
 
-      // Generate PDF + upload to Drive (best-effort; signing is already saved).
-      let pdfWarning: string | null = null;
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-signing-pdf`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${session?.access_token ?? ''}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ signing_id: signing.id }),
-        });
-        if (!res.ok) {
-          const t = await res.text();
-          pdfWarning = `[${res.status}] ${t}`;
-        }
-      } catch (e) {
-        pdfWarning = (e as Error).message;
-      }
+      // Generate PDF + upload (best-effort; signing is already saved).
+      const pdfWarning = await triggerPdf(signing.id);
 
       setFeedback(
         pdfWarning
@@ -323,9 +456,10 @@ export default function SignFormPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label">סוג פעולה</label>
-            <select className="input" value={signingType} onChange={(e) => setSigningType(e.target.value as SigningType)}>
+            <select className="input" value={signingType} onChange={(e) => setSigningType(e.target.value as OpMode)}>
               <option value="signing">החתמה (נפק)</option>
               <option value="return">זיכוי (החזר)</option>
+              <option value="transfer">העברה לחייל אחר</option>
             </select>
           </div>
           <div>
@@ -359,14 +493,17 @@ export default function SignFormPage() {
         )}
 
         <div>
+          {isTransfer && (
+            <div className="text-sm font-semibold text-slate-700 mb-2">חייל מוסר</div>
+          )}
           <div className="flex gap-4 mb-3">
-            <label className={`flex items-center gap-2 text-sm ${isReturn ? 'opacity-50' : 'cursor-pointer'}`}>
+            <label className={`flex items-center gap-2 text-sm ${usesHeldItems ? 'opacity-50' : 'cursor-pointer'}`}>
               <input type="radio" checked={useExisting} onChange={() => setUseExisting(true)} />
               חייל קיים
             </label>
-            <label className={`flex items-center gap-2 text-sm ${isReturn ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-              <input type="radio" checked={!useExisting} disabled={isReturn} onChange={() => setUseExisting(false)} />
-              חייל חדש {isReturn && <span className="text-xs text-slate-500">(לא זמין בזיכוי)</span>}
+            <label className={`flex items-center gap-2 text-sm ${usesHeldItems ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+              <input type="radio" checked={!useExisting} disabled={usesHeldItems} onChange={() => setUseExisting(false)} />
+              חייל חדש {usesHeldItems && <span className="text-xs text-slate-500">(לא זמין ב{isTransfer ? 'העברה' : 'זיכוי'})</span>}
             </label>
           </div>
           {useExisting ? (
@@ -413,8 +550,93 @@ export default function SignFormPage() {
           )}
         </div>
 
-        {/* Currently-held items panel — shown for any existing-soldier flow */}
-        {useExisting && soldierId && !isReturn && (
+        {/* Receiver picker — only for the transfer flow */}
+        {isTransfer && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+            <div className="text-sm font-semibold text-slate-700 mb-2">חייל מקבל</div>
+            <div className="flex gap-4 mb-3">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  checked={useExistingReceiver}
+                  onChange={() => setUseExistingReceiver(true)}
+                />
+                חייל קיים
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  checked={!useExistingReceiver}
+                  onChange={() => setUseExistingReceiver(false)}
+                />
+                חייל חדש
+              </label>
+            </div>
+            {useExistingReceiver ? (
+              <select
+                className="input"
+                value={receiverSoldierId}
+                onChange={(e) => setReceiverSoldierId(e.target.value)}
+              >
+                <option value="">— בחר חייל —</option>
+                {soldiers
+                  .filter((s) => s.id !== soldierId)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name} ({s.personal_number})
+                    </option>
+                  ))}
+              </select>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="label">שם מלא *</label>
+                  <input
+                    className="input"
+                    value={newReceiver.full_name}
+                    onChange={(e) => setNewReceiver({ ...newReceiver, full_name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="label">מספר אישי *</label>
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    pattern="\d{7}"
+                    title="7 ספרות בדיוק"
+                    maxLength={7}
+                    value={newReceiver.personal_number}
+                    onChange={(e) =>
+                      setNewReceiver({ ...newReceiver, personal_number: e.target.value.replace(/\D/g, '') })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="label">טלפון *</label>
+                  <input
+                    className="input"
+                    inputMode="tel"
+                    pattern="05\d{8}"
+                    title="מספר סלולרי ישראלי: 05XXXXXXXX"
+                    maxLength={10}
+                    placeholder="05XXXXXXXX"
+                    value={newReceiver.phone}
+                    onChange={(e) =>
+                      setNewReceiver({ ...newReceiver, phone: e.target.value.replace(/\D/g, '') })
+                    }
+                  />
+                </div>
+              </div>
+            )}
+            <div className="mt-2 text-xs text-slate-500">
+              החייל המקבל יירשם באותה מסגרת/צוות של המוסר. ה-PDF יתעדכן לשני החיילים.
+            </div>
+          </div>
+        )}
+
+        {/* Currently-held items panel — shown only for the 'signing' flow.
+            (Return and transfer render their own item checklist below.) */}
+        {useExisting && soldierId && !usesHeldItems && (
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div className="text-sm font-semibold text-slate-700 mb-2">פריטים שכבר חתומים על החייל</div>
             {heldItems.length === 0 ? (
@@ -432,10 +654,10 @@ export default function SignFormPage() {
           </div>
         )}
 
-        {/* RETURN flow: checkbox list of held items */}
-        {isReturn ? (
+        {/* RETURN + TRANSFER flow: checkbox list of held items taken from the giver */}
+        {usesHeldItems ? (
           <div>
-            <label className="label">פריטים לזיכוי</label>
+            <label className="label">{isTransfer ? 'פריטים להעברה' : 'פריטים לזיכוי'}</label>
             {!soldierId ? (
               <div className="text-sm text-slate-500">בחר חייל כדי לראות את הפריטים שלו</div>
             ) : heldItems.length === 0 ? (
@@ -581,7 +803,13 @@ export default function SignFormPage() {
 
         <div className="flex justify-end">
           <button type="submit" disabled={submitting} className="btn-primary">
-            {submitting ? 'שומר...' : isReturn ? 'שמור זיכוי' : 'שמור החתמה'}
+            {submitting
+              ? 'שומר...'
+              : isTransfer
+                ? 'שמור העברה'
+                : isReturn
+                  ? 'שמור זיכוי'
+                  : 'שמור החתמה'}
           </button>
         </div>
       </form>

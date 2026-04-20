@@ -7,8 +7,13 @@ import { loadUnitHeldForReturn } from '../lib/unitStock';
 import { loadBattalionSerials } from '../lib/itemSerials';
 import type { Item, Unit, UnitSigningType } from '../lib/database.types';
 
-type LineItem = { itemId: string; quantity: number; serialNumber: string };
+// For bulk items (no registered serials), `quantity` is user-entered and
+// `selectedSerials` stays empty. For serialized items, `selectedSerials` drives
+// the allocation and `quantity` is derived = selectedSerials.length.
+type LineItem = { itemId: string; quantity: number; selectedSerials: string[] };
 type ReturnSelection = { key: string; itemId: string; serialNumber: string | null; quantity: number };
+
+const EMPTY_LINE: LineItem = { itemId: '', quantity: 1, selectedSerials: [] };
 
 export default function UnitSignFormPage() {
   const { profile } = useAuth();
@@ -19,7 +24,7 @@ export default function UnitSignFormPage() {
 
   const [type, setType] = useState<UnitSigningType>('signing');
   const [unitId, setUnitId] = useState<string>('');
-  const [lines, setLines] = useState<LineItem[]>([{ itemId: '', quantity: 1, serialNumber: '' }]);
+  const [lines, setLines] = useState<LineItem[]>([{ ...EMPTY_LINE }]);
   // itemId → serials available at the battalion (registered, not currently at any unit).
   const [battalionSerials, setBattalionSerials] = useState<Record<string, Array<{ serialId: string; serialNumber: string }>>>({});
   const [held, setHeld] = useState<Array<{ itemId: string; itemName: string; serialNumber: string | null; quantity: number }>>([]);
@@ -85,8 +90,19 @@ export default function UnitSignFormPage() {
   function updateLine(idx: number, patch: Partial<LineItem>) {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   }
-  function addLine() { setLines((prev) => [...prev, { itemId: '', quantity: 1, serialNumber: '' }]); }
+  function addLine() { setLines((prev) => [...prev, { ...EMPTY_LINE }]); }
   function removeLine(idx: number) { setLines((prev) => prev.filter((_, i) => i !== idx)); }
+
+  function toggleLineSerial(idx: number, serial: string) {
+    setLines((prev) => prev.map((l, i) => {
+      if (i !== idx) return l;
+      const has = l.selectedSerials.includes(serial);
+      const next = has
+        ? l.selectedSerials.filter((s) => s !== serial)
+        : [...l.selectedSerials, serial];
+      return { ...l, selectedSerials: next, quantity: Math.max(1, next.length) };
+    }));
+  }
 
   function toggleReturnCheck(key: string, max: number) {
     setReturnChecks((prev) => {
@@ -117,17 +133,49 @@ export default function UnitSignFormPage() {
         .map((r) => ({ item_id: r.itemId, quantity: r.quantity, serial_number: r.serialNumber }));
       if (inserts.length === 0) return setFeedback({ type: 'error', msg: 'סמן לפחות פריט אחד להחזרה' });
     } else {
-      const valid = lines.filter((l) => l.itemId && l.quantity > 0);
+      const valid = lines.filter((l) => {
+        if (!l.itemId) return false;
+        // Serialized lines must have at least one serial picked.
+        if (l.selectedSerials.length > 0) return true;
+        // Bulk lines need quantity > 0. But if this item HAS registered serials,
+        // we force the user to pick them (no "bulk" fallback).
+        const hasRegistered = (battalionSerials[l.itemId] ?? []).length > 0;
+        if (hasRegistered) return false; // user picked 0 — skip silently; caught below
+        return l.quantity > 0;
+      });
       if (valid.length === 0) return setFeedback({ type: 'error', msg: 'הוסף לפחות פריט אחד' });
-      // Can't allocate the same serial twice in one unit signing.
-      const serialKeys = valid.filter((l) => l.serialNumber).map((l) => `${l.itemId}::${l.serialNumber}`);
-      const dupe = serialKeys.find((k, i) => serialKeys.indexOf(k) !== i);
-      if (dupe) return setFeedback({ type: 'error', msg: 'בחרת את אותו צ׳ יותר מפעם אחת' });
-      inserts = valid.map((l) => ({
-        item_id: l.itemId,
-        quantity: l.quantity,
-        serial_number: l.serialNumber.trim() || null,
-      }));
+
+      // For lines where the item has serials registered but user didn't pick any → block
+      for (const l of lines) {
+        if (!l.itemId) continue;
+        const hasRegistered = (battalionSerials[l.itemId] ?? []).length > 0;
+        if (hasRegistered && l.selectedSerials.length === 0) {
+          const name = items.find((i) => i.id === l.itemId)?.name ?? 'פריט';
+          return setFeedback({ type: 'error', msg: `בחר צ׳ אחד או יותר עבור "${name}"` });
+        }
+      }
+
+      // Prevent the same serial being selected in two different lines for the same item.
+      const seen = new Map<string, number>();
+      for (const l of valid) {
+        for (const s of l.selectedSerials) {
+          const key = `${l.itemId}::${s}`;
+          if (seen.has(key)) return setFeedback({ type: 'error', msg: 'בחרת את אותו צ׳ יותר מפעם אחת' });
+          seen.set(key, 1);
+        }
+      }
+
+      // Expand: each selected serial becomes its own row (qty=1). Bulk lines stay as one row.
+      inserts = valid.flatMap((l): Array<{ item_id: string; quantity: number; serial_number: string | null }> => {
+        if (l.selectedSerials.length > 0) {
+          return l.selectedSerials.map((s) => ({
+            item_id: l.itemId,
+            quantity: 1,
+            serial_number: s,
+          }));
+        }
+        return [{ item_id: l.itemId, quantity: l.quantity, serial_number: null }];
+      });
     }
 
     setSubmitting(true);
@@ -157,10 +205,10 @@ export default function UnitSignFormPage() {
         details: { unit_id: unitId, items: inserts.length },
       });
 
-      setFeedback({ type: 'success', msg: 'נשמר בהצלחה' });
+      setFeedback({ type: 'success', msg: `נשמר בהצלחה (${inserts.length} פריטים)` });
       // serials just got allocated/returned — refresh the cache before resetting the form
       await refreshAllBattalionSerials().catch(() => {});
-      setLines([{ itemId: '', quantity: 1, serialNumber: '' }]);
+      setLines([{ ...EMPTY_LINE }]);
       setNotes('');
       if (isReturn) {
         // Refresh held list after a return.
@@ -261,64 +309,123 @@ export default function UnitSignFormPage() {
               <label className="label !mb-0">פריטים להקצאה</label>
               <button type="button" onClick={addLine} className="btn-secondary !py-1 !px-3 text-xs">+ הוסף פריט</button>
             </div>
-            <div className="space-y-2">
-              {lines.map((line, idx) => (
-                <div key={idx} className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start border sm:border-0 border-slate-200 rounded-lg p-2 sm:p-0">
-                  <select
-                    className="input flex-1"
-                    value={line.itemId}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      updateLine(idx, { itemId: v, serialNumber: '', quantity: 1 });
-                      ensureBattalionSerialsLoaded(v);
-                    }}
-                  >
-                    <option value="">— בחר פריט —</option>
-                    {items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
-                  </select>
-                  <div className="flex gap-2">
-                    {(() => {
-                      const serials = line.itemId ? (battalionSerials[line.itemId] ?? []) : [];
-                      const taken = new Set(
-                        lines
-                          .filter((_, i) => i !== idx)
-                          .filter((l) => l.itemId === line.itemId && l.serialNumber)
-                          .map((l) => l.serialNumber),
-                      );
-                      const visible = serials.filter((s) => !taken.has(s.serialNumber));
-                      const hasRegistered = serials.length > 0;
-                      return (
-                        <select
-                          className="input flex-1 sm:w-40 sm:flex-none"
-                          value={line.serialNumber}
-                          disabled={!line.itemId}
-                          onChange={(e) => updateLine(idx, {
-                            serialNumber: e.target.value,
-                            quantity: e.target.value ? 1 : line.quantity,
-                          })}
+            <div className="space-y-3">
+              {lines.map((line, idx) => {
+                const serials = line.itemId ? (battalionSerials[line.itemId] ?? []) : [];
+                const hasRegistered = serials.length > 0;
+                // Serials picked in OTHER lines for the same item — hide from this checklist.
+                const takenElsewhere = new Set(
+                  lines
+                    .filter((_, i) => i !== idx)
+                    .filter((l) => l.itemId === line.itemId)
+                    .flatMap((l) => l.selectedSerials),
+                );
+                const visibleSerials = serials.filter((s) => !takenElsewhere.has(s.serialNumber));
+                const selectedCount = line.selectedSerials.length;
+
+                return (
+                  <div key={idx} className="border border-slate-200 rounded-lg p-3 space-y-3">
+                    <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                      <select
+                        className="input flex-1"
+                        value={line.itemId}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          updateLine(idx, { itemId: v, selectedSerials: [], quantity: 1 });
+                          ensureBattalionSerialsLoaded(v);
+                        }}
+                      >
+                        <option value="">— בחר פריט —</option>
+                        {items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
+                      </select>
+
+                      {/* Bulk-only quantity input (items without registered serials). */}
+                      {line.itemId && !hasRegistered && (
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-slate-500 whitespace-nowrap">כמות</label>
+                          <input
+                            type="number"
+                            min={1}
+                            className="input w-24"
+                            value={line.quantity}
+                            onChange={(e) => updateLine(idx, { quantity: parseInt(e.target.value) || 1 })}
+                          />
+                        </div>
+                      )}
+
+                      {lines.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeLine(idx)}
+                          className="btn-ghost text-red-600 !px-3"
+                          aria-label="הסר שורה"
                         >
-                          <option value="">{hasRegistered ? '— בחר צ׳ —' : '— ללא צ׳ —'}</option>
-                          {visible.map((s) => (
-                            <option key={s.serialId} value={s.serialNumber}>{s.serialNumber}</option>
-                          ))}
-                        </select>
-                      );
-                    })()}
-                    <input
-                      type="number"
-                      min={1}
-                      className="input w-20"
-                      value={line.quantity}
-                      disabled={!!line.serialNumber}
-                      title={line.serialNumber ? 'צ׳ ספציפי — כמות נעולה על 1' : undefined}
-                      onChange={(e) => updateLine(idx, { quantity: parseInt(e.target.value) || 1 })}
-                    />
-                    {lines.length > 1 && (
-                      <button type="button" onClick={() => removeLine(idx)} className="btn-ghost text-red-600 !px-3">×</button>
+                          ×
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Serials checklist — only for serialized items. */}
+                    {line.itemId && hasRegistered && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2 text-xs">
+                          <span className="text-slate-600">
+                            סמן צ׳ים (נבחרו <span className="font-semibold">{selectedCount}</span> מתוך {visibleSerials.length})
+                          </span>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              className="text-sky-700 hover:text-sky-900"
+                              onClick={() => updateLine(idx, {
+                                selectedSerials: visibleSerials.map((s) => s.serialNumber),
+                                quantity: Math.max(1, visibleSerials.length),
+                              })}
+                              disabled={visibleSerials.length === 0}
+                            >
+                              בחר הכל
+                            </button>
+                            {selectedCount > 0 && (
+                              <button
+                                type="button"
+                                className="text-slate-500 hover:text-slate-700"
+                                onClick={() => updateLine(idx, { selectedSerials: [], quantity: 1 })}
+                              >
+                                נקה
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {visibleSerials.length === 0 ? (
+                          <div className="text-sm text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                            אין צ׳ים זמינים בגדוד לפריט זה
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-56 overflow-auto border border-slate-200 rounded-lg p-2 bg-slate-50">
+                            {visibleSerials.map((s) => {
+                              const checked = line.selectedSerials.includes(s.serialNumber);
+                              return (
+                                <label
+                                  key={s.serialId}
+                                  className={`flex items-center gap-2 text-sm rounded-md px-2 py-1 cursor-pointer ${
+                                    checked ? 'bg-emerald-100 text-emerald-900' : 'bg-white hover:bg-slate-100'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleLineSerial(idx, s.serialNumber)}
+                                  />
+                                  <span className="font-mono text-xs" dir="ltr">{s.serialNumber}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

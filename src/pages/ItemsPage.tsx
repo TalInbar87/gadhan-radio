@@ -68,12 +68,42 @@ export default function ItemsPage() {
       .maybeSingle();
 
     if (existing) {
+      const statusLabel = existing.active ? 'קיים' : 'קיים (מושבת)';
+      // If the existing record is deactivated, offer to reactivate it. Otherwise
+      // steer the user to the "נהל צ'ים" button on its row.
+      if (!existing.active) {
+        const reactivateMsg = serials.length > 0
+          ? `פריט בשם "${existing.name}" ${statusLabel}.\nלהפעיל אותו מחדש ולהוסיף ${serials.length} צ'ים?`
+          : `פריט בשם "${existing.name}" ${statusLabel}.\nלהפעיל אותו מחדש?`;
+        if (!confirm(reactivateMsg)) return;
+        const { error: upErr } = await supabase.from('items').update({ active: true }).eq('id', existing.id);
+        if (upErr) return alert(upErr.message);
+        await logAudit({ action: 'item.activate', targetType: 'item', targetId: existing.id });
+        if (serials.length > 0) {
+          try {
+            const added = await addItemSerials(existing.id, serials);
+            await logAudit({
+              action: 'item.serials_add',
+              targetType: 'item',
+              targetId: existing.id,
+              details: { count: added, attempted: serials.length, via: 'add-form-reactivate' },
+            });
+            alert(`הפריט הופעל מחדש ונוספו ${added} צ'ים חדשים (${serials.length - added} כבר היו קיימים).`);
+          } catch (e) {
+            alert(`הפריט הופעל אך הוספת הצ'ים נכשלה: ${(e as Error).message}`);
+          }
+        }
+        setForm({ name: '', description: '', serials: '' });
+        load();
+        return;
+      }
+
       if (serials.length === 0) {
-        alert(`פריט בשם "${existing.name}" כבר קיים. לניהול הצ'ים לחץ "נהל צ'ים" בשורה שלו.`);
+        alert(`פריט בשם "${existing.name}" כבר ${statusLabel}. לניהול הצ'ים לחץ "נהל צ'ים" בשורה שלו.`);
         return;
       }
       const ok = confirm(
-        `פריט בשם "${existing.name}" כבר קיים.\nלהוסיף ${serials.length} צ'ים לפריט הקיים?`,
+        `פריט בשם "${existing.name}" כבר ${statusLabel}.\nלהוסיף ${serials.length} צ'ים לפריט הקיים?`,
       );
       if (!ok) return;
       try {

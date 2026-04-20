@@ -47,7 +47,16 @@ export interface Item {
   id: string;
   name: string;
   description: string | null;
+  category: string | null;
   active: boolean;
+  created_at: string;
+}
+
+export interface ItemBundleComponent {
+  id: string;
+  bundle_item_id: string;
+  component_item_id: string;
+  quantity: number;
   created_at: string;
 }
 
@@ -135,6 +144,7 @@ export interface Database {
       signings: { Row: Signing; Insert: Partial<Signing> & { soldier_id: string; performed_by: string; unit_id: string; type: SigningType }; Update: Partial<Signing> };
       signing_items: { Row: SigningItem; Insert: Partial<SigningItem> & { signing_id: string; item_id: string; quantity: number; action: ItemAction }; Update: Partial<SigningItem> };
       item_serials: { Row: ItemSerial; Insert: Partial<ItemSerial> & { item_id: string; serial_number: string }; Update: Partial<ItemSerial> };
+      item_bundle_components: { Row: ItemBundleComponent; Insert: Partial<ItemBundleComponent> & { bundle_item_id: string; component_item_id: string }; Update: Partial<ItemBundleComponent> };
       unit_signings: { Row: UnitSigning; Insert: Partial<UnitSigning> & { unit_id: string; performed_by: string; type: UnitSigningType }; Update: Partial<UnitSigning> };
       unit_signing_items: { Row: UnitSigningItem; Insert: Partial<UnitSigningItem> & { unit_signing_id: string; item_id: string; quantity: number; action: UnitItemAction }; Update: Partial<UnitSigningItem> };
       audit_logs: { Row: AuditLog; Insert: Partial<AuditLog> & { action: string }; Update: Partial<AuditLog> };

@@ -3,16 +3,8 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { logAudit } from '../lib/audit';
 import { loadSoldierHeldItems, type HeldItem } from '../lib/heldItems';
-import { loadUnitAvailability } from '../lib/unitStock';
+import { loadUnitAvailability, type UnitAvailability } from '../lib/unitStock';
 import type { Item, SigningType, Soldier, Team, Unit } from '../lib/database.types';
-
-interface ItemAvailability {
-  itemId: string;
-  itemName: string;
-  available: number;
-  stock: number;
-  distributed: number;
-}
 
 type LineItem = { itemId: string; quantity: number; serialNumber: string };
 type ReturnSelection = { key: string; itemId: string; serialNumber: string | null; quantity: number };
@@ -32,7 +24,7 @@ export default function SignFormPage() {
   const [useExisting, setUseExisting] = useState(true);
   const [lines, setLines] = useState<LineItem[]>([{ itemId: '', quantity: 1, serialNumber: '' }]);
   const [heldItems, setHeldItems] = useState<HeldItem[]>([]);
-  const [availability, setAvailability] = useState<ItemAvailability[]>([]);
+  const [availability, setAvailability] = useState<UnitAvailability[]>([]);
   const [returnChecks, setReturnChecks] = useState<Record<string, ReturnSelection>>({});
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -109,7 +101,7 @@ export default function SignFormPage() {
 
   // Item id → availability entry (for quick lookup in the dropdown / validation).
   const availMap = useMemo(() => {
-    const m = new Map<string, ItemAvailability>();
+    const m = new Map<string, UnitAvailability>();
     for (const a of availability) m.set(a.itemId, a);
     return m;
   }, [availability]);
@@ -178,6 +170,24 @@ export default function SignFormPage() {
       // On 'signing', make sure we don't exceed unit availability. 'inspection'
       // is a no-op against stock, so skip the check there.
       if (signingType === 'signing') {
+        // Require serial selection when the item has only serialized stock.
+        for (const l of valid) {
+          const a = availMap.get(l.itemId);
+          if (!a) continue;
+          if (!l.serialNumber && !a.hasBulk && a.serials.length > 0) {
+            const name = items.find((i) => i.id === l.itemId)?.name ?? 'פריט';
+            return setFeedback({
+              type: 'error',
+              msg: `יש לבחור צ׳ עבור "${name}"`,
+            });
+          }
+        }
+        // Same serial picked twice in different lines → invalid.
+        const serialKeys = valid.filter((l) => l.serialNumber).map((l) => `${l.itemId}::${l.serialNumber}`);
+        const dupe = serialKeys.find((k, i) => serialKeys.indexOf(k) !== i);
+        if (dupe) {
+          return setFeedback({ type: 'error', msg: 'בחרת את אותו צ׳ יותר מפעם אחת' });
+        }
         const totals = new Map<string, number>();
         for (const l of valid) totals.set(l.itemId, (totals.get(l.itemId) ?? 0) + l.quantity);
         for (const [itemId, qty] of totals) {
@@ -468,7 +478,7 @@ export default function SignFormPage() {
                   <select
                     className="input flex-1"
                     value={line.itemId}
-                    onChange={(e) => updateLine(idx, { itemId: e.target.value })}
+                    onChange={(e) => updateLine(idx, { itemId: e.target.value, serialNumber: '', quantity: 1 })}
                   >
                     <option value="">— בחר פריט —</option>
                     {signingItems.map((it) => {
@@ -484,18 +494,48 @@ export default function SignFormPage() {
                     )}
                   </select>
                   <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="צ' (מס׳ פריט)"
-                      className="input flex-1 sm:w-36 sm:flex-none"
-                      value={line.serialNumber}
-                      onChange={(e) => updateLine(idx, { serialNumber: e.target.value })}
-                    />
+                    {(() => {
+                      const a = line.itemId ? availMap.get(line.itemId) : null;
+                      const serials = a?.serials ?? [];
+                      // serials already chosen in OTHER lines for the same item — hide from this dropdown
+                      const takenSerials = new Set(
+                        lines
+                          .filter((_, i) => i !== idx)
+                          .filter((l) => l.itemId === line.itemId && l.serialNumber)
+                          .map((l) => l.serialNumber),
+                      );
+                      const visibleSerials = serials.filter((s) => !takenSerials.has(s.serial));
+                      const hasAnySerials = serials.length > 0;
+                      const canBulk = a?.hasBulk ?? false;
+                      // If the item has only serials (no bulk), force user to pick one.
+                      return (
+                        <select
+                          className="input flex-1 sm:w-40 sm:flex-none"
+                          value={line.serialNumber}
+                          disabled={!line.itemId || (!hasAnySerials && !canBulk)}
+                          onChange={(e) => updateLine(idx, {
+                            serialNumber: e.target.value,
+                            quantity: e.target.value ? 1 : line.quantity,
+                          })}
+                        >
+                          {canBulk ? (
+                            <option value="">— ללא צ׳ —</option>
+                          ) : (
+                            <option value="">— בחר צ׳ —</option>
+                          )}
+                          {visibleSerials.map((s) => (
+                            <option key={s.serial} value={s.serial}>{s.serial}</option>
+                          ))}
+                        </select>
+                      );
+                    })()}
                     <input
                       type="number"
                       min={1}
                       className="input w-20"
                       value={line.quantity}
+                      disabled={!!line.serialNumber}
+                      title={line.serialNumber ? 'צ׳ ספציפי — כמות נעולה על 1' : undefined}
                       onChange={(e) => updateLine(idx, { quantity: parseInt(e.target.value) || 1 })}
                     />
                     {lines.length > 1 && (

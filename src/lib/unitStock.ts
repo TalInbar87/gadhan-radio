@@ -6,21 +6,34 @@ export interface UnitStockRow extends UnitItemStock {
   unitName: string;
 }
 
+export interface UnitAvailability {
+  itemId: string;
+  itemName: string;
+  available: number;
+  stock: number;
+  distributed: number;
+  /** Serial numbers still available in this unit for this item (available > 0). */
+  serials: Array<{ serial: string; available: number }>;
+  /** True if any row for this item has no serial (bulk item, e.g. "סוללה x10"). */
+  hasBulk: boolean;
+}
+
 /**
  * Availability per item (ignoring serial_number) in a given unit.
  * Returns only items with available > 0, suitable for the raspar sign form.
  */
-export async function loadUnitAvailability(unitId: string): Promise<Array<{ itemId: string; itemName: string; available: number; stock: number; distributed: number }>> {
+export async function loadUnitAvailability(unitId: string): Promise<UnitAvailability[]> {
   const { data, error } = await supabase
     .from('unit_item_stock')
-    .select('item_id, stock, distributed, available, item:items(name)')
+    .select('item_id, serial_number, stock, distributed, available, item:items(name)')
     .eq('unit_id', unitId);
   if (error) throw error;
 
-  // Aggregate across serial numbers → one row per item.
-  const agg = new Map<string, { itemId: string; itemName: string; available: number; stock: number; distributed: number }>();
+  // Aggregate across serial numbers → one entry per item, plus per-serial breakdown.
+  const agg = new Map<string, UnitAvailability>();
   for (const r of (data ?? []) as unknown as Array<{
     item_id: string;
+    serial_number: string | null;
     stock: number;
     distributed: number;
     available: number;
@@ -32,11 +45,23 @@ export async function loadUnitAvailability(unitId: string): Promise<Array<{ item
       available: 0,
       stock: 0,
       distributed: 0,
+      serials: [],
+      hasBulk: false,
     };
     cur.available += r.available;
     cur.stock += r.stock;
     cur.distributed += r.distributed;
+    if (r.serial_number) {
+      if (r.available > 0) cur.serials.push({ serial: r.serial_number, available: r.available });
+    } else {
+      // bulk row (item allocated without a serial number)
+      if (r.available > 0) cur.hasBulk = true;
+    }
     agg.set(r.item_id, cur);
+  }
+  // Sort serials inside each item for stable UI order.
+  for (const a of agg.values()) {
+    a.serials.sort((x, y) => x.serial.localeCompare(y.serial, 'he', { numeric: true }));
   }
   return Array.from(agg.values()).sort((a, b) => a.itemName.localeCompare(b.itemName, 'he'));
 }

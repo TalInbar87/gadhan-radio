@@ -57,14 +57,59 @@ export default function ItemsPage() {
 
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
+    const name = form.name.trim();
+    const serials = parseSerialBlob(form.serials);
+
+    // Pre-check: does a pre-existing item share this name?
+    const { data: existing } = await supabase
+      .from('items')
+      .select('id, name, active')
+      .ilike('name', name)
+      .maybeSingle();
+
+    if (existing) {
+      if (serials.length === 0) {
+        alert(`פריט בשם "${existing.name}" כבר קיים. לניהול הצ'ים לחץ "נהל צ'ים" בשורה שלו.`);
+        return;
+      }
+      const ok = confirm(
+        `פריט בשם "${existing.name}" כבר קיים.\nלהוסיף ${serials.length} צ'ים לפריט הקיים?`,
+      );
+      if (!ok) return;
+      try {
+        const added = await addItemSerials(existing.id, serials);
+        await logAudit({
+          action: 'item.serials_add',
+          targetType: 'item',
+          targetId: existing.id,
+          details: { count: added, attempted: serials.length, via: 'add-form-duplicate' },
+        });
+        alert(`נוספו ${added} צ'ים חדשים (${serials.length - added} כבר היו קיימים).`);
+      } catch (e) {
+        alert(`הוספת הצ'ים נכשלה: ${(e as Error).message}`);
+        return;
+      }
+      setForm({ name: '', description: '', serials: '' });
+      load();
+      return;
+    }
+
     const { data, error } = await supabase.from('items').insert({
-      name: form.name,
+      name,
       description: form.description || null,
     }).select().single();
-    if (error) return alert(error.message);
-    await logAudit({ action: 'item.create', targetType: 'item', targetId: data.id, details: { name: form.name } });
+    if (error) {
+      // Race: someone else created the same name between the check and the insert,
+      // or our ilike missed it (unlikely). Surface a clean Hebrew message.
+      if ((error as { code?: string }).code === '23505') {
+        alert(`פריט בשם "${name}" כבר קיים.`);
+      } else {
+        alert(error.message);
+      }
+      return;
+    }
+    await logAudit({ action: 'item.create', targetType: 'item', targetId: data.id, details: { name } });
 
-    const serials = parseSerialBlob(form.serials);
     if (serials.length > 0) {
       try {
         const added = await addItemSerials(data.id, serials);

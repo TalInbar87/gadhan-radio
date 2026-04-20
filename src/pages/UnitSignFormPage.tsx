@@ -32,6 +32,8 @@ export default function UnitSignFormPage() {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  // Per-line serial search filter (keyed by line index).
+  const [serialFilter, setSerialFilter] = useState<Record<number, string>>({});
 
   useEffect(() => {
     (async () => {
@@ -322,6 +324,10 @@ export default function UnitSignFormPage() {
                 );
                 const visibleSerials = serials.filter((s) => !takenElsewhere.has(s.serialNumber));
                 const selectedCount = line.selectedSerials.length;
+                const filterText = (serialFilter[idx] ?? '').trim().toLowerCase();
+                const matchedSerials = filterText
+                  ? visibleSerials.filter((s) => s.serialNumber.toLowerCase().includes(filterText))
+                  : visibleSerials;
 
                 return (
                   <div key={idx} className="border border-slate-200 rounded-lg p-3 space-y-3">
@@ -371,18 +377,25 @@ export default function UnitSignFormPage() {
                         <div className="flex items-center justify-between mb-2 text-xs">
                           <span className="text-slate-600">
                             סמן צ׳ים (נבחרו <span className="font-semibold">{selectedCount}</span> מתוך {visibleSerials.length})
+                            {filterText && visibleSerials.length !== matchedSerials.length && (
+                              <span className="text-slate-400"> · מוצגים {matchedSerials.length}</span>
+                            )}
                           </span>
                           <div className="flex gap-2">
                             <button
                               type="button"
                               className="text-sky-700 hover:text-sky-900"
-                              onClick={() => updateLine(idx, {
-                                selectedSerials: visibleSerials.map((s) => s.serialNumber),
-                                quantity: Math.max(1, visibleSerials.length),
-                              })}
-                              disabled={visibleSerials.length === 0}
+                              onClick={() => {
+                                const toSelect = matchedSerials.map((s) => s.serialNumber);
+                                const next = Array.from(new Set([...line.selectedSerials, ...toSelect]));
+                                updateLine(idx, {
+                                  selectedSerials: next,
+                                  quantity: Math.max(1, next.length),
+                                });
+                              }}
+                              disabled={matchedSerials.length === 0}
                             >
-                              בחר הכל
+                              {filterText ? 'בחר מסוננים' : 'בחר הכל'}
                             </button>
                             {selectedCount > 0 && (
                               <button
@@ -395,13 +408,27 @@ export default function UnitSignFormPage() {
                             )}
                           </div>
                         </div>
+                        {visibleSerials.length > 8 && (
+                          <input
+                            type="text"
+                            className="input !py-1.5 text-sm mb-2 font-mono"
+                            dir="ltr"
+                            placeholder="חפש צ׳..."
+                            value={serialFilter[idx] ?? ''}
+                            onChange={(e) => setSerialFilter((prev) => ({ ...prev, [idx]: e.target.value }))}
+                          />
+                        )}
                         {visibleSerials.length === 0 ? (
                           <div className="text-sm text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
                             אין צ׳ים זמינים בגדוד לפריט זה
                           </div>
+                        ) : matchedSerials.length === 0 ? (
+                          <div className="text-sm text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                            אין צ׳ים שתואמים את החיפוש
+                          </div>
                         ) : (
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-56 overflow-auto border border-slate-200 rounded-lg p-2 bg-slate-50">
-                            {visibleSerials.map((s) => {
+                            {matchedSerials.map((s) => {
                               const checked = line.selectedSerials.includes(s.serialNumber);
                               return (
                                 <label

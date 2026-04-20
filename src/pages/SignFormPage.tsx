@@ -170,7 +170,8 @@ export default function SignFormPage() {
       // On 'signing', make sure we don't exceed unit availability. 'inspection'
       // is a no-op against stock, so skip the check there.
       if (signingType === 'signing') {
-        // Require serial selection when the item has only serialized stock.
+        // Require serial selection when the item has only serialized stock,
+        // and ensure any typed serial exists in the unit's available list.
         for (const l of valid) {
           const a = availMap.get(l.itemId);
           if (!a) continue;
@@ -180,6 +181,16 @@ export default function SignFormPage() {
               type: 'error',
               msg: `יש לבחור צ׳ עבור "${name}"`,
             });
+          }
+          if (l.serialNumber) {
+            const validSerials = new Set(a.serials.map((s) => s.serial));
+            if (!validSerials.has(l.serialNumber.trim())) {
+              const name = items.find((i) => i.id === l.itemId)?.name ?? 'פריט';
+              return setFeedback({
+                type: 'error',
+                msg: `הצ׳ "${l.serialNumber}" לא זמין עבור "${name}"`,
+              });
+            }
           }
         }
         // Same serial picked twice in different lines → invalid.
@@ -242,7 +253,7 @@ export default function SignFormPage() {
         .single();
       if (sigErr) throw sigErr;
 
-      const action = signingType === 'signing' ? 'issued' : signingType === 'return' ? 'returned' : 'inspected';
+      const action = signingType === 'signing' ? 'issued' : 'returned';
       const { error: itemsErr } = await supabase.from('signing_items').insert(
         inserts.map((i) => ({ ...i, signing_id: signing.id, action }))
       );
@@ -315,7 +326,6 @@ export default function SignFormPage() {
             <select className="input" value={signingType} onChange={(e) => setSigningType(e.target.value as SigningType)}>
               <option value="signing">החתמה (נפק)</option>
               <option value="return">זיכוי (החזר)</option>
-              <option value="inspection">בדיקה</option>
             </select>
           </div>
           <div>
@@ -497,7 +507,7 @@ export default function SignFormPage() {
                     {(() => {
                       const a = line.itemId ? availMap.get(line.itemId) : null;
                       const serials = a?.serials ?? [];
-                      // serials already chosen in OTHER lines for the same item — hide from this dropdown
+                      // serials already chosen in OTHER lines for the same item — hide from the suggestions
                       const takenSerials = new Set(
                         lines
                           .filter((_, i) => i !== idx)
@@ -507,26 +517,30 @@ export default function SignFormPage() {
                       const visibleSerials = serials.filter((s) => !takenSerials.has(s.serial));
                       const hasAnySerials = serials.length > 0;
                       const canBulk = a?.hasBulk ?? false;
-                      // If the item has only serials (no bulk), force user to pick one.
+                      const placeholder = !line.itemId
+                        ? '—'
+                        : !hasAnySerials
+                          ? (canBulk ? 'ללא צ׳' : 'אין צ׳ים')
+                          : canBulk ? 'צ׳ (אופציונלי)' : 'חפש/בחר צ׳';
                       return (
-                        <select
-                          className="input flex-1 sm:w-40 sm:flex-none"
-                          value={line.serialNumber}
-                          disabled={!line.itemId || (!hasAnySerials && !canBulk)}
-                          onChange={(e) => updateLine(idx, {
-                            serialNumber: e.target.value,
-                            quantity: e.target.value ? 1 : line.quantity,
-                          })}
-                        >
-                          {canBulk ? (
-                            <option value="">— ללא צ׳ —</option>
-                          ) : (
-                            <option value="">— בחר צ׳ —</option>
-                          )}
-                          {visibleSerials.map((s) => (
-                            <option key={s.serial} value={s.serial}>{s.serial}</option>
-                          ))}
-                        </select>
+                        <>
+                          <input
+                            className="input flex-1 sm:w-40 sm:flex-none font-mono text-sm"
+                            list={`serials-line-${idx}`}
+                            value={line.serialNumber}
+                            placeholder={placeholder}
+                            disabled={!line.itemId || (!hasAnySerials && !canBulk)}
+                            onChange={(e) => updateLine(idx, {
+                              serialNumber: e.target.value,
+                              quantity: e.target.value ? 1 : line.quantity,
+                            })}
+                          />
+                          <datalist id={`serials-line-${idx}`}>
+                            {visibleSerials.map((s) => (
+                              <option key={s.serial} value={s.serial} />
+                            ))}
+                          </datalist>
+                        </>
                       );
                     })()}
                     <input

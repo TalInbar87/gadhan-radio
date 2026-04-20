@@ -90,6 +90,20 @@ export interface UnitSigningItem {
   serial_number: string | null;
 }
 
+export interface ItemSerial {
+  id: string;
+  item_id: string;
+  serial_number: string;
+  created_at: string;
+}
+
+export interface ItemSerialStatus {
+  serial_id: string;
+  item_id: string;
+  serial_number: string;
+  current_unit_id: string | null;
+}
+
 export interface UnitItemStock {
   unit_id: string;
   item_id: string;
@@ -120,6 +134,7 @@ export interface Database {
       items: { Row: Item; Insert: Partial<Item> & { name: string }; Update: Partial<Item> };
       signings: { Row: Signing; Insert: Partial<Signing> & { soldier_id: string; performed_by: string; unit_id: string; type: SigningType }; Update: Partial<Signing> };
       signing_items: { Row: SigningItem; Insert: Partial<SigningItem> & { signing_id: string; item_id: string; quantity: number; action: ItemAction }; Update: Partial<SigningItem> };
+      item_serials: { Row: ItemSerial; Insert: Partial<ItemSerial> & { item_id: string; serial_number: string }; Update: Partial<ItemSerial> };
       unit_signings: { Row: UnitSigning; Insert: Partial<UnitSigning> & { unit_id: string; performed_by: string; type: UnitSigningType }; Update: Partial<UnitSigning> };
       unit_signing_items: { Row: UnitSigningItem; Insert: Partial<UnitSigningItem> & { unit_signing_id: string; item_id: string; quantity: number; action: UnitItemAction }; Update: Partial<UnitSigningItem> };
       audit_logs: { Row: AuditLog; Insert: Partial<AuditLog> & { action: string }; Update: Partial<AuditLog> };

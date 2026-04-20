@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { logAudit } from '../lib/audit';
 import { loadUnitHeldForReturn } from '../lib/unitStock';
+import { loadBattalionSerials } from '../lib/itemSerials';
 import type { Item, Unit, UnitSigningType } from '../lib/database.types';
 
 type LineItem = { itemId: string; quantity: number; serialNumber: string };
@@ -19,6 +20,8 @@ export default function UnitSignFormPage() {
   const [type, setType] = useState<UnitSigningType>('signing');
   const [unitId, setUnitId] = useState<string>('');
   const [lines, setLines] = useState<LineItem[]>([{ itemId: '', quantity: 1, serialNumber: '' }]);
+  // itemId → serials available at the battalion (registered, not currently at any unit).
+  const [battalionSerials, setBattalionSerials] = useState<Record<string, Array<{ serialId: string; serialNumber: string }>>>({});
   const [held, setHeld] = useState<Array<{ itemId: string; itemName: string; serialNumber: string | null; quantity: number }>>([]);
   const [returnChecks, setReturnChecks] = useState<Record<string, ReturnSelection>>({});
   const [notes, setNotes] = useState('');
@@ -58,6 +61,27 @@ export default function UnitSignFormPage() {
 
   const isReturn = type === 'return';
 
+  async function ensureBattalionSerialsLoaded(itemId: string) {
+    if (!itemId || battalionSerials[itemId]) return;
+    try {
+      const rows = await loadBattalionSerials(itemId);
+      setBattalionSerials((prev) => ({ ...prev, [itemId]: rows }));
+    } catch (e) {
+      setFeedback({ type: 'error', msg: (e as Error).message });
+    }
+  }
+
+  async function refreshAllBattalionSerials() {
+    // After a successful save, any cached serials are stale for items we touched.
+    const touched = Array.from(new Set(lines.map((l) => l.itemId).filter(Boolean)));
+    const entries = await Promise.all(touched.map(async (id) => [id, await loadBattalionSerials(id)] as const));
+    setBattalionSerials((prev) => {
+      const next = { ...prev };
+      for (const [id, rows] of entries) next[id] = rows;
+      return next;
+    });
+  }
+
   function updateLine(idx: number, patch: Partial<LineItem>) {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   }
@@ -95,6 +119,10 @@ export default function UnitSignFormPage() {
     } else {
       const valid = lines.filter((l) => l.itemId && l.quantity > 0);
       if (valid.length === 0) return setFeedback({ type: 'error', msg: 'הוסף לפחות פריט אחד' });
+      // Can't allocate the same serial twice in one unit signing.
+      const serialKeys = valid.filter((l) => l.serialNumber).map((l) => `${l.itemId}::${l.serialNumber}`);
+      const dupe = serialKeys.find((k, i) => serialKeys.indexOf(k) !== i);
+      if (dupe) return setFeedback({ type: 'error', msg: 'בחרת את אותו צ׳ יותר מפעם אחת' });
       inserts = valid.map((l) => ({
         item_id: l.itemId,
         quantity: l.quantity,
@@ -130,6 +158,8 @@ export default function UnitSignFormPage() {
       });
 
       setFeedback({ type: 'success', msg: 'נשמר בהצלחה' });
+      // serials just got allocated/returned — refresh the cache before resetting the form
+      await refreshAllBattalionSerials().catch(() => {});
       setLines([{ itemId: '', quantity: 1, serialNumber: '' }]);
       setNotes('');
       if (isReturn) {
@@ -237,24 +267,50 @@ export default function UnitSignFormPage() {
                   <select
                     className="input flex-1"
                     value={line.itemId}
-                    onChange={(e) => updateLine(idx, { itemId: e.target.value })}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updateLine(idx, { itemId: v, serialNumber: '', quantity: 1 });
+                      ensureBattalionSerialsLoaded(v);
+                    }}
                   >
                     <option value="">— בחר פריט —</option>
                     {items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
                   </select>
                   <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="צ' (מס׳ פריט)"
-                      className="input flex-1 sm:w-36 sm:flex-none"
-                      value={line.serialNumber}
-                      onChange={(e) => updateLine(idx, { serialNumber: e.target.value })}
-                    />
+                    {(() => {
+                      const serials = line.itemId ? (battalionSerials[line.itemId] ?? []) : [];
+                      const taken = new Set(
+                        lines
+                          .filter((_, i) => i !== idx)
+                          .filter((l) => l.itemId === line.itemId && l.serialNumber)
+                          .map((l) => l.serialNumber),
+                      );
+                      const visible = serials.filter((s) => !taken.has(s.serialNumber));
+                      const hasRegistered = serials.length > 0;
+                      return (
+                        <select
+                          className="input flex-1 sm:w-40 sm:flex-none"
+                          value={line.serialNumber}
+                          disabled={!line.itemId}
+                          onChange={(e) => updateLine(idx, {
+                            serialNumber: e.target.value,
+                            quantity: e.target.value ? 1 : line.quantity,
+                          })}
+                        >
+                          <option value="">{hasRegistered ? '— בחר צ׳ —' : '— ללא צ׳ —'}</option>
+                          {visible.map((s) => (
+                            <option key={s.serialId} value={s.serialNumber}>{s.serialNumber}</option>
+                          ))}
+                        </select>
+                      );
+                    })()}
                     <input
                       type="number"
                       min={1}
                       className="input w-20"
                       value={line.quantity}
+                      disabled={!!line.serialNumber}
+                      title={line.serialNumber ? 'צ׳ ספציפי — כמות נעולה על 1' : undefined}
                       onChange={(e) => updateLine(idx, { quantity: parseInt(e.target.value) || 1 })}
                     />
                     {lines.length > 1 && (

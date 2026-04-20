@@ -11,11 +11,11 @@ const navItems = [
 const reportsChildren = [
   { to: '/reports', label: 'ייצוא דוחות' },
   { to: '/signings', label: 'כל ההחתמות' },
+  { to: '/unit-stock', label: 'דוח מלאי / בדיקות' },
 ];
 const adminItems = [
   { to: '/unit-sign', label: 'החתמת מסגרת' },
   { to: '/unit-signings', label: 'החתמות מסגרות' },
-  { to: '/unit-stock', label: 'דוח מלאי מסגרות' },
   { to: '/items', label: 'ניהול פריטים' },
   { to: '/soldiers-import', label: 'ייבוא חיילים' },
   { to: '/users', label: 'ניהול משתמשים' },

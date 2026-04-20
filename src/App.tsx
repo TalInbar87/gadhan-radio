@@ -30,7 +30,7 @@ export default function App() {
         <Route path="reports" element={<ReportsPage />} />
         <Route path="unit-sign" element={<ProtectedRoute requireAdmin><UnitSignFormPage /></ProtectedRoute>} />
         <Route path="unit-signings" element={<ProtectedRoute requireAdmin><UnitSigningsPage /></ProtectedRoute>} />
-        <Route path="unit-stock" element={<ProtectedRoute requireAdmin><UnitStockReportPage /></ProtectedRoute>} />
+        <Route path="unit-stock" element={<UnitStockReportPage />} />
         <Route path="soldiers-import" element={<ProtectedRoute requireAdmin><SoldiersImportPage /></ProtectedRoute>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

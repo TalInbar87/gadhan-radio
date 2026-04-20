@@ -96,6 +96,8 @@ export interface ItemSerial {
   id: string;
   item_id: string;
   serial_number: string;
+  last_inspected_at: string | null;
+  last_inspected_by: string | null;
   created_at: string;
 }
 
@@ -103,7 +105,9 @@ export interface ItemSerialStatus {
   serial_id: string;
   item_id: string;
   serial_number: string;
+  last_inspected_at: string | null;
   current_unit_id: string | null;
+  current_soldier_id: string | null;
 }
 
 export interface UnitItemStock {

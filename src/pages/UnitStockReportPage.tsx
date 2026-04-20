@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
@@ -56,19 +56,43 @@ export default function UnitStockReportPage() {
   // Only show items that appear in at least one unit (to keep the matrix compact).
   const itemsInReport = useMemo(() => {
     const ids = new Set(rows.map((r) => r.item_id));
-    return items.filter((it) => ids.has(it.id));
+    return items
+      .filter((it) => ids.has(it.id))
+      .sort((a, b) => a.name.localeCompare(b.name, 'he'));
   }, [rows, items]);
 
   const unitsInReport = useMemo(() => {
-    if (unitFilter) return units.filter((u) => u.id === unitFilter);
-    const ids = new Set(rows.map((r) => r.unit_id));
-    return units.filter((u) => ids.has(u.id));
+    const base = unitFilter
+      ? units.filter((u) => u.id === unitFilter)
+      : units.filter((u) => new Set(rows.map((r) => r.unit_id)).has(u.id));
+    return [...base].sort((a, b) => a.name.localeCompare(b.name, 'he'));
   }, [rows, units, unitFilter]);
 
   const filteredDetailed = useMemo(() => {
-    if (!unitFilter) return rows;
-    return rows.filter((r) => r.unit_id === unitFilter);
+    const base = unitFilter ? rows.filter((r) => r.unit_id === unitFilter) : rows;
+    // Sort: unit (Hebrew) → item (Hebrew) → serial (numeric-aware).
+    return [...base].sort((a, b) => {
+      const u = a.unitName.localeCompare(b.unitName, 'he');
+      if (u !== 0) return u;
+      const it = a.itemName.localeCompare(b.itemName, 'he');
+      if (it !== 0) return it;
+      return (a.serial_number ?? '').localeCompare(b.serial_number ?? '', 'he', { numeric: true });
+    });
   }, [rows, unitFilter]);
+
+  // Group sorted rows under their unit for visual separation in the detailed table.
+  const detailedGroups = useMemo(() => {
+    const groups: Array<{ unitId: string; unitName: string; rows: UnitStockRow[] }> = [];
+    for (const r of filteredDetailed) {
+      const last = groups[groups.length - 1];
+      if (last && last.unitId === r.unit_id) {
+        last.rows.push(r);
+      } else {
+        groups.push({ unitId: r.unit_id, unitName: r.unitName, rows: [r] });
+      }
+    }
+    return groups;
+  }, [filteredDetailed]);
 
   function exportCsv() {
     const header = ['מסגרת', 'פריט', 'צ׳', 'הוקצה', 'הוחזר לגדוד', 'מלאי', 'חולק לחיילים', 'זמין'];
@@ -187,19 +211,29 @@ export default function UnitStockReportPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredDetailed.map((r, idx) => (
-                  <tr key={`${r.unit_id}-${r.item_id}-${r.serial_number ?? ''}-${idx}`}>
-                    <td>{r.unitName}</td>
-                    <td>{r.itemName}</td>
-                    <td className="text-xs">{r.serial_number ?? '—'}</td>
-                    <td className="text-center">{r.allocated}</td>
-                    <td className="text-center">{r.returned_up}</td>
-                    <td className="text-center font-medium">{r.stock}</td>
-                    <td className="text-center">{r.distributed}</td>
-                    <td className={`text-center font-semibold ${r.available < 0 ? 'text-red-600' : r.available === 0 ? 'text-slate-400' : 'text-emerald-700'}`}>
-                      {r.available}
-                    </td>
-                  </tr>
+                {detailedGroups.map((g) => (
+                  <Fragment key={g.unitId}>
+                    <tr className="bg-slate-100">
+                      <td colSpan={8} className="font-semibold text-slate-700 px-2 py-1.5">
+                        {g.unitName}
+                        <span className="text-xs font-normal text-slate-500 mr-2">({g.rows.length} שורות)</span>
+                      </td>
+                    </tr>
+                    {g.rows.map((r, idx) => (
+                      <tr key={`${r.unit_id}-${r.item_id}-${r.serial_number ?? ''}-${idx}`}>
+                        <td>{r.unitName}</td>
+                        <td>{r.itemName}</td>
+                        <td className="text-xs">{r.serial_number ?? '—'}</td>
+                        <td className="text-center">{r.allocated}</td>
+                        <td className="text-center">{r.returned_up}</td>
+                        <td className="text-center font-medium">{r.stock}</td>
+                        <td className="text-center">{r.distributed}</td>
+                        <td className={`text-center font-semibold ${r.available < 0 ? 'text-red-600' : r.available === 0 ? 'text-slate-400' : 'text-emerald-700'}`}>
+                          {r.available}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
                 {filteredDetailed.length === 0 && (
                   <tr><td colSpan={8} className="text-center text-slate-500 py-6">אין רשומות</td></tr>

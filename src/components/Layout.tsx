@@ -17,6 +17,7 @@ const adminItems = [
   { to: '/unit-signings', label: 'החתמות מסגרות' },
   { to: '/unit-stock', label: 'דוח מלאי מסגרות' },
   { to: '/items', label: 'ניהול פריטים' },
+  { to: '/soldiers-import', label: 'ייבוא חיילים' },
   { to: '/users', label: 'ניהול משתמשים' },
 ];
 

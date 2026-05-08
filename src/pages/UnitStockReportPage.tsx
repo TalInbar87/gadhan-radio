@@ -271,9 +271,11 @@ export default function UnitStockReportPage() {
                         return (
                           <td key={u.id} className="text-center">
                             <div className="text-sm font-semibold">{cell.available}</div>
-                            <div className="text-[11px] text-slate-500">
-                              מלאי {cell.stock} / חולק {cell.distributed}
-                            </div>
+                            {cell.distributed > 0 && (
+                              <div className="text-[11px] text-slate-500">
+                                מלאי {cell.stock} / חולק {cell.distributed}
+                              </div>
+                            )}
                           </td>
                         );
                       })}

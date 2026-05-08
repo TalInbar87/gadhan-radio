@@ -90,11 +90,12 @@ export default function UnitStockReportPage() {
   }, [rows, items]);
 
   const unitsInReport = useMemo(() => {
-    const base = unitFilter
-      ? units.filter((u) => u.id === unitFilter)
-      : units.filter((u) => new Set(rows.map((r) => r.unit_id)).has(u.id));
+    const allWithData = units.filter((u) => new Set(rows.map((r) => r.unit_id)).has(u.id));
+    const base = (mode === 'matrix' || !unitFilter)
+      ? allWithData
+      : allWithData.filter((u) => u.id === unitFilter);
     return [...base].sort((a, b) => a.name.localeCompare(b.name, 'he'));
-  }, [rows, units, unitFilter]);
+  }, [rows, units, unitFilter, mode]);
 
   // Inspection rows, sorted: unit → item → serial (numeric-aware).
   const sortedInspections = useMemo(() => {
@@ -135,6 +136,28 @@ export default function UnitStockReportPage() {
     } finally {
       setBusySerialId(null);
     }
+  }
+
+  function exportMatrixCsv() {
+    const header = ['פריט', ...unitsInReport.map((u) => u.name)];
+    const lines = [header.map((c) => `"${c}"`).join(',')];
+    for (const it of itemsInReport) {
+      const row = [
+        it.name,
+        ...unitsInReport.map((u) => {
+          const cell = matrix.get(`${u.id}::${it.id}`);
+          return cell && cell.available > 0 ? String(cell.available) : '';
+        }),
+      ];
+      lines.push(row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','));
+    }
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `unit-stock_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function exportInspectionsCsv() {
@@ -179,6 +202,11 @@ export default function UnitStockReportPage() {
           </button>
           {mode === 'inspections' && (
             <button className="btn-secondary !py-1.5 !px-3 text-sm" onClick={exportInspectionsCsv}>
+              ייצא CSV
+            </button>
+          )}
+          {mode === 'matrix' && rows.length > 0 && (
+            <button className="btn-secondary !py-1.5 !px-3 text-sm" onClick={exportMatrixCsv}>
               ייצא CSV
             </button>
           )}

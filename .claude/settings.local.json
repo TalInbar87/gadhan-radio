@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bash deploy.sh --skip-supabase --yes)"
+      "Bash(bash deploy.sh --skip-supabase --yes)",
+      "Bash(npx tsc *)"
     ]
   }
 }

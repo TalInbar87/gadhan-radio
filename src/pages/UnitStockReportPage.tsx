@@ -250,7 +250,7 @@ export default function UnitStockReportPage() {
             <div className="text-center text-slate-500 py-6">עדיין לא בוצעו החתמות מסגרת</div>
           ) : (
             <div className="table-wrap">
-              <table className="table-base" style={{ width: 'auto' }}>
+              <table className="table-base">
                 <thead>
                   <tr>
                     <th>פריט</th>

@@ -266,10 +266,10 @@ export default function UnitStockReportPage() {
                       {unitsInReport.map((u) => {
                         const cell = matrix.get(`${u.id}::${it.id}`);
                         if (!cell || cell.allocated === 0) {
-                          return <td key={u.id} className="text-center text-slate-300">—</td>;
+                          return <td key={u.id} className="text-slate-300">—</td>;
                         }
                         return (
-                          <td key={u.id} className="text-center">
+                          <td key={u.id}>
                             <div className="text-sm font-semibold">{cell.available}</div>
                             {cell.distributed > 0 && (
                               <div className="text-[11px] text-slate-500">

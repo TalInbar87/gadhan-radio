@@ -90,12 +90,11 @@ export default function UnitStockReportPage() {
   }, [rows, items]);
 
   const unitsInReport = useMemo(() => {
-    const allWithData = units.filter((u) => new Set(rows.map((r) => r.unit_id)).has(u.id));
-    const base = (mode === 'matrix' || !unitFilter)
-      ? allWithData
-      : allWithData.filter((u) => u.id === unitFilter);
+    const base = unitFilter
+      ? units.filter((u) => u.id === unitFilter)
+      : units.filter((u) => new Set(rows.map((r) => r.unit_id)).has(u.id));
     return [...base].sort((a, b) => a.name.localeCompare(b.name, 'he'));
-  }, [rows, units, unitFilter, mode]);
+  }, [rows, units, unitFilter]);
 
   // Inspection rows, sorted: unit → item → serial (numeric-aware).
   const sortedInspections = useMemo(() => {
